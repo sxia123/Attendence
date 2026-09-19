@@ -178,14 +178,14 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) =>
       setStudentId('');
       onPunchSuccess?.();
 
-      // Auto close after 0.1 seconds (100ms flash confirmation)
+      // Auto close after 120ms (smooth 0.1s bloom & fade)
       if (autoCloseTimerRef.current) {
         clearTimeout(autoCloseTimerRef.current);
       }
       autoCloseTimerRef.current = setTimeout(() => {
         setSignalModal(null);
         inputRef.current?.focus();
-      }, 100);
+      }, 120);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'An error occurred.');
       setStudentId('');
@@ -582,46 +582,40 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) =>
       {signalModal && (
         <div
           onClick={closeSignalModalNow}
-          className={`fixed inset-0 z-50 flex flex-col items-center justify-center p-6 text-white text-center cursor-pointer transition-all duration-100 animate-in fade-in zoom-in-95 ${
-            signalModal.type === 'in' ? 'bg-[#059669]' : 'bg-[#e11d48]'
+          className={`fixed inset-0 z-50 flex flex-col items-center justify-center p-6 text-white text-center cursor-pointer kiosk-flash-pulse ${
+            signalModal.type === 'in'
+              ? 'bg-gradient-to-b from-emerald-600/95 via-emerald-600/90 to-emerald-700/95 backdrop-blur-md'
+              : 'bg-gradient-to-b from-rose-600/95 via-rose-600/90 to-rose-700/95 backdrop-blur-md'
           }`}
-          style={{ animationDuration: '0.1s', transitionDuration: '0.1s' }}
         >
-          <div className="max-w-xl w-full flex flex-col items-center space-y-6">
-            <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center shadow-2xl border-4 border-white/40">
+          <div className="max-w-xl w-full flex flex-col items-center space-y-4 pointer-events-none">
+            {/* Animated Glow Circle */}
+            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.3)] border-2 border-white/50">
               {signalModal.type === 'in' ? (
-                <CheckCircle2 className="w-16 h-16 sm:w-24 sm:h-24 text-white" strokeWidth={2.5} />
+                <CheckCircle2 className="w-12 h-12 sm:w-14 sm:h-14 text-white" strokeWidth={2.5} />
               ) : (
-                <LogOut className="w-16 h-16 sm:w-24 sm:h-24 text-white" strokeWidth={2.5} />
+                <LogOut className="w-12 h-12 sm:w-14 sm:h-14 text-white" strokeWidth={2.5} />
               )}
             </div>
 
-            <div className="space-y-2">
-              <span className="text-sm sm:text-base font-mono uppercase tracking-widest text-white/80">
+            <div className="space-y-1">
+              <span className="text-xs sm:text-sm font-mono uppercase tracking-widest text-white/80">
                 {signalModal.type === 'in' ? 'Welcome' : 'Goodbye'}
               </span>
-              <h2 className="text-4xl sm:text-6xl font-mono font-bold tracking-tight text-white drop-shadow-md">
+              <h2 className="text-3xl sm:text-5xl font-mono font-bold tracking-tight text-white drop-shadow-lg">
                 {signalModal.studentName}
               </h2>
             </div>
 
-            <div className="bg-white/20 backdrop-blur-md px-6 py-2.5 rounded-xl border border-white/30 text-xl font-mono font-bold">
+            <div className="bg-white/25 backdrop-blur-md px-5 py-1.5 rounded-xl border border-white/40 text-base sm:text-lg font-mono font-bold tracking-wide shadow-md">
               {signalModal.type === 'in' ? '✓ SIGNED IN' : '✓ SIGNED OUT'}
             </div>
 
-            <div className="space-y-1 font-mono text-lg sm:text-xl font-medium text-white/95">
-              <div>Session: {signalModal.sessionType} Hours</div>
-              <div>Time: {signalModal.time}</div>
-              {signalModal.duration && (
-                <div className="text-2xl sm:text-3xl font-extrabold text-white bg-white/10 px-4 py-2 rounded-xl mt-2">
-                  Duration: {signalModal.duration}
-                </div>
-              )}
-            </div>
-
-            <div className="text-xs font-mono text-white/70 pt-6 animate-pulse">
-              Tap anywhere to return
-            </div>
+            {signalModal.duration && (
+              <div className="text-sm font-mono font-medium text-white/90">
+                Duration: {signalModal.duration}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -68,3 +68,28 @@ body {
 input:focus, button:focus-visible {
   outline: none;
 }
+
+/* Smooth 0.1s Kiosk Flash Animation (Smooth Enter + Hold + Soft Dissolve) */
+@keyframes flashBloomAndFade {
+  0% {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.02);
+  }
+}
+
+.kiosk-flash-pulse {
+  animation: flashBloomAndFade 120ms cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+  will-change: opacity, transform;
+}
