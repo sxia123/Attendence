@@ -1,44 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Student } from '../types/attendance';
-import {
-  Trophy,
-  Download,
-  Search,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  RotateCcw,
-  LogOut,
-  FileEdit,
-  Users,
-  CalendarCheck,
-} from 'lucide-react';
+import { Trophy } from 'lucide-react';
 
 interface HoursLeaderboardProps {
-  onExit: () => void;
+  onExit?: () => void;
   onGoToEditor?: () => void;
 }
 
-type SortField = 'rank' | 'name' | 'id' | 'status' | 'sessions';
-type SortOrder = 'asc' | 'desc';
-
-export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
-  onExit,
-  onGoToEditor,
-}) => {
+export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = () => {
   const [students, setStudents] = useState<Student[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-
-  // Column Filters
-  const [filterRank, setFilterRank] = useState<'top5' | 'top3' | 'all'>('top5');
-  const [filterName, setFilterName] = useState<string>('');
-  const [filterId, setFilterId] = useState<string>('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'in' | 'out'>('all');
-  const [filterSessions, setFilterSessions] = useState<'all' | 'gte_1' | 'gte_3' | 'gte_5'>('all');
-
-  // Column Sorting
-  const [sortField, setSortField] = useState<SortField>('rank');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
 
   // Fetch Students
   const fetchStudents = useCallback(async (): Promise<void> => {
@@ -60,553 +31,114 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
     void fetchStudents();
   }, [fetchStudents]);
 
-  // Overall ranked list (strictly sorted by total hours desc to calculate base ranks)
-  const rankedBase = useMemo(() => {
+  // Ranked Top 5 Students strictly by total hours (highest to lowest)
+  const top5Students = useMemo(() => {
     const list = [...students].sort((a, b) => b.totalMinutes - a.totalMinutes);
-    return list.map((student, idx) => ({
+    return list.slice(0, 5).map((student, idx) => ({
       ...student,
-      baseRank: idx + 1,
+      rank: idx + 1,
     }));
   }, [students]);
 
-  // Top 5 Students
-  const top5Students = useMemo(() => {
-    return rankedBase.slice(0, 5);
-  }, [rankedBase]);
-
-  const activeCount = useMemo(() => {
-    return students.filter((s) => s.isClockedIn).length;
-  }, [students]);
-
-  // Sorting helper
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortField(field);
-      setSortOrder(field === 'sessions' ? 'desc' : 'asc');
+  const getRankBadge = (rank: number) => {
+    switch (rank) {
+      case 1:
+        return {
+          icon: '🥇',
+          label: '1st',
+          border: 'border-amber-500/60 bg-gradient-to-r from-amber-950/25 to-[#1c1c1f]',
+          text: 'text-amber-300',
+        };
+      case 2:
+        return {
+          icon: '🥈',
+          label: '2nd',
+          border: 'border-zinc-500/60 bg-gradient-to-r from-zinc-850/40 to-[#1c1c1f]',
+          text: 'text-zinc-300',
+        };
+      case 3:
+        return {
+          icon: '🥉',
+          label: '3rd',
+          border: 'border-amber-800/60 bg-gradient-to-r from-amber-950/20 to-[#1c1c1f]',
+          text: 'text-amber-500',
+        };
+      default:
+        return {
+          icon: null,
+          label: `#${rank}`,
+          border: 'border-[#27272a] bg-[#1c1c1f]',
+          text: 'text-zinc-400',
+        };
     }
-  };
-
-  // Filter & Sort Logic for Leaderboard Table
-  const filteredAndSorted = useMemo(() => {
-    let source = rankedBase;
-    if (filterRank === 'top5') {
-      source = rankedBase.slice(0, 5);
-    } else if (filterRank === 'top3') {
-      source = rankedBase.slice(0, 3);
-    }
-
-    return source
-      .filter((student) => {
-        // 1. Name filter
-        if (
-          filterName.trim() &&
-          !student.name.toLowerCase().includes(filterName.trim().toLowerCase())
-        ) {
-          return false;
-        }
-
-        // 2. ID filter
-        if (filterId.trim() && !student.id.includes(filterId.trim())) {
-          return false;
-        }
-
-        // 3. Status filter
-        if (filterStatus === 'in' && !student.isClockedIn) return false;
-        if (filterStatus === 'out' && student.isClockedIn) return false;
-
-        // 4. Sessions filter
-        const sess = student.sessionsCount || 0;
-        if (filterSessions === 'gte_1' && sess < 1) return false;
-        if (filterSessions === 'gte_3' && sess < 3) return false;
-        if (filterSessions === 'gte_5' && sess < 5) return false;
-
-        return true;
-      })
-      .sort((a, b) => {
-        let valA: string | number = 0;
-        let valB: string | number = 0;
-
-        switch (sortField) {
-          case 'rank':
-            valA = a.baseRank;
-            valB = b.baseRank;
-            break;
-          case 'name':
-            valA = a.name.toLowerCase();
-            valB = b.name.toLowerCase();
-            break;
-          case 'id':
-            valA = a.id;
-            valB = b.id;
-            break;
-          case 'status':
-            valA = a.isClockedIn ? 1 : 0;
-            valB = b.isClockedIn ? 1 : 0;
-            break;
-          case 'sessions':
-            valA = a.sessionsCount || 0;
-            valB = b.sessionsCount || 0;
-            break;
-        }
-
-        if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
-        if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
-        return 0;
-      });
-  }, [rankedBase, filterRank, filterName, filterId, filterStatus, filterSessions, sortField, sortOrder]);
-
-  const hasActiveFilters =
-    filterRank !== 'top5' ||
-    Boolean(filterName.trim()) ||
-    Boolean(filterId.trim()) ||
-    filterStatus !== 'all' ||
-    filterSessions !== 'all';
-
-  const clearAllFilters = () => {
-    setFilterRank('top5');
-    setFilterName('');
-    setFilterId('');
-    setFilterStatus('all');
-    setFilterSessions('all');
-    setSortField('rank');
-    setSortOrder('asc');
-  };
-
-  const renderSortIcon = (field: SortField) => {
-    if (sortField !== field) {
-      return <ArrowUpDown className="w-3 h-3 text-zinc-600 inline ml-1 opacity-60 hover:opacity-100" />;
-    }
-    return sortOrder === 'asc' ? (
-      <ArrowUp className="w-3 h-3 text-cyan-400 inline ml-1" />
-    ) : (
-      <ArrowDown className="w-3 h-3 text-cyan-400 inline ml-1" />
-    );
   };
 
   return (
-    <div className="flex-1 flex flex-col w-full h-full select-none text-zinc-100 p-6 overflow-y-auto font-mono">
-      {/* Top Action & Navigation Bar */}
-      <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            type="button"
-            onClick={onExit}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-200 hover:text-white hover:bg-zinc-700 text-xs transition-colors"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>← Back to Student Attendance</span>
-          </button>
-
-          {onGoToEditor && (
-            <button
-              type="button"
-              onClick={onGoToEditor}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-700 bg-[#1c1c1f] text-zinc-300 hover:text-white text-xs transition-colors"
-            >
-              <FileEdit className="w-3.5 h-3.5" />
-              <span>Open Hours Editor</span>
-            </button>
-          )}
-
-          <a
-            href="/api/developer/export-csv"
-            download
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-[#27272a] bg-[#1c1c1f] text-zinc-300 hover:text-white text-xs transition-colors"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Download CSV</span>
-          </a>
+    <div className="flex-1 flex flex-col items-center justify-center p-6 select-none max-w-xl mx-auto w-full font-mono">
+      {/* Heading: Leaderboard */}
+      <div className="text-center mb-8">
+        <div className="w-14 h-14 rounded-2xl bg-[#1c1c1f] border border-[#27272a] flex items-center justify-center mx-auto mb-4 shadow-xl text-amber-400">
+          <Trophy className="w-7 h-7" />
         </div>
-
-        {/* Reset Filters Button */}
-        {hasActiveFilters && (
-          <button
-            type="button"
-            onClick={clearAllFilters}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/40 border border-rose-800 text-rose-300 hover:bg-rose-900/50 text-xs transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset Filters</span>
-          </button>
-        )}
+        <h1 className="text-3xl sm:text-4xl font-bold tracking-wider text-white">
+          Leaderboard
+        </h1>
+        <p className="text-xs text-zinc-400 mt-2">
+          Top 5 members
+        </p>
       </div>
 
-      {/* Top Header Banner */}
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#27272a] pb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <Trophy className="w-6 h-6 text-amber-400" />
-            <h1 className="text-2xl font-bold text-white tracking-wide">Top 5 Leaderboard</h1>
+      {/* Top 5 List */}
+      <div className="w-full space-y-3">
+        {isLoading ? (
+          <div className="p-8 text-center text-zinc-500 text-sm bg-[#1c1c1f] rounded-2xl border border-[#27272a]">
+            Loading leaderboard...
           </div>
-          <p className="text-xs text-zinc-400 mt-1">
-            Displaying the top 5 student rankings by attendance activity.
-          </p>
-        </div>
-
-        {/* Quick Team Summary */}
-        <div className="flex items-center gap-4 text-xs text-zinc-400 bg-[#151518] px-4 py-2 rounded-xl border border-[#27272a]">
-          <div className="flex items-center gap-1.5">
-            <Users className="w-4 h-4 text-emerald-400" />
-            <span>Present: <strong className="text-white">{activeCount}</strong> / {students.length}</span>
+        ) : top5Students.length === 0 ? (
+          <div className="p-8 text-center text-zinc-500 text-sm bg-[#1c1c1f] rounded-2xl border border-[#27272a]">
+            No members registered yet.
           </div>
-          <div className="flex items-center gap-1.5">
-            <CalendarCheck className="w-4 h-4 text-cyan-400" />
-            <span>Top Students: <strong className="text-white">5</strong></span>
-          </div>
-        </div>
-      </div>
+        ) : (
+          top5Students.map((student) => {
+            const badge = getRankBadge(student.rank);
 
-      {/* Top 5 Showcase Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 mb-6">
-        {top5Students.map((student) => {
-          const rank = student.baseRank;
-          const isFirst = rank === 1;
-          const isSecond = rank === 2;
-          const isThird = rank === 3;
-
-          const cardBorder = isFirst
-            ? 'border-amber-500/80 bg-gradient-to-b from-amber-950/30 to-[#1c1c1f]'
-            : isSecond
-            ? 'border-zinc-500/70 bg-gradient-to-b from-zinc-800/30 to-[#1c1c1f]'
-            : isThird
-            ? 'border-amber-800/70 bg-gradient-to-b from-amber-900/20 to-[#1c1c1f]'
-            : 'border-[#27272a] bg-[#1c1c1f]';
-
-          const badgeIcon = isFirst ? '🥇' : isSecond ? '🥈' : isThird ? '🥉' : '🏅';
-
-          return (
-            <div
-              key={student.id}
-              className={`rounded-2xl border p-4 shadow-xl flex flex-col justify-between relative overflow-hidden transition-all hover:scale-[1.02] ${cardBorder}`}
-            >
-              {/* Header: Badge & Status */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-1.5 font-bold text-sm">
-                  <span className="text-xl">{badgeIcon}</span>
-                  <span
-                    className={
-                      isFirst
-                        ? 'text-amber-300'
-                        : isSecond
-                        ? 'text-zinc-300'
-                        : isThird
-                        ? 'text-amber-500'
-                        : 'text-zinc-400'
-                    }
+            return (
+              <div
+                key={student.id}
+                className={`p-4 sm:p-5 rounded-2xl border ${badge.border} flex items-center justify-between shadow-lg transition-all hover:scale-[1.01]`}
+              >
+                {/* Left: Rank & Name */}
+                <div className="flex items-center gap-4 min-w-0">
+                  <div
+                    className={`w-10 h-10 rounded-xl bg-[#121214] border border-[#27272a] flex items-center justify-center font-bold text-base flex-shrink-0 ${badge.text}`}
                   >
-                    #{rank}
-                  </span>
+                    {badge.icon || badge.label}
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base sm:text-lg font-bold text-white truncate">
+                      {student.name}
+                    </h2>
+                    <span className="text-xs text-zinc-500">ID: {student.id}</span>
+                  </div>
                 </div>
 
-                {student.isClockedIn ? (
-                  <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-1.5 py-0.5 rounded font-bold">
-                    Present
-                  </span>
-                ) : (
-                  <span className="text-[10px] bg-zinc-900 text-zinc-500 border border-zinc-800 px-1.5 py-0.5 rounded">
-                    Signed Out
-                  </span>
-                )}
+                {/* Right: Status */}
+                <div>
+                  {student.isClockedIn ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-3 py-1 rounded-full font-medium">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      Present
+                    </span>
+                  ) : (
+                    <span className="text-xs text-zinc-500 bg-zinc-900/60 border border-zinc-800 px-3 py-1 rounded-full">
+                      Signed Out
+                    </span>
+                  )}
+                </div>
               </div>
-
-              {/* Student Details */}
-              <div className="space-y-1">
-                <h3 className="text-base font-bold text-white truncate" title={student.name}>
-                  {student.name}
-                </h3>
-                <div className="text-xs text-zinc-400">ID: {student.id}</div>
-              </div>
-
-              {/* Sessions Footer */}
-              <div className="mt-4 pt-3 border-t border-[#27272a] flex justify-between items-center text-xs">
-                <span className="text-zinc-500">Sessions</span>
-                <span className="font-bold text-white bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
-                  {student.sessionsCount || 0}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Top 5 Leaderboard Table Container */}
-      <div className="bg-[#1c1c1f] rounded-2xl border border-[#27272a] shadow-2xl overflow-hidden flex flex-col">
-        {/* Table Header Filter Status Bar */}
-        <div className="px-5 py-3 border-b border-[#27272a] bg-[#151518] flex items-center justify-between text-xs text-zinc-400 flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-white">Top 5 Rankings Table</span>
-            <span>•</span>
-            <span>
-              Showing <strong className="text-white">{filteredAndSorted.length}</strong> of{' '}
-              <strong className="text-white">5</strong> students
-            </span>
-          </div>
-
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={clearAllFilters}
-              className="text-zinc-400 hover:text-white underline text-[11px]"
-            >
-              Reset table filters
-            </button>
-          )}
-        </div>
-
-        {/* The Main Table with Per-Column Headers and Per-Column Filters (No hours columns) */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              {/* Row 1: Header Titles with Sort Buttons */}
-              <tr className="border-b border-[#27272a] bg-[#121214] text-zinc-400 font-semibold select-none">
-                {/* 1. Rank */}
-                <th
-                  onClick={() => handleSort('rank')}
-                  className="py-3 px-4 w-24 cursor-pointer hover:text-white transition-colors"
-                >
-                  <div className="flex items-center gap-1">
-                    <span>Rank</span>
-                    {renderSortIcon('rank')}
-                  </div>
-                </th>
-
-                {/* 2. Student Name */}
-                <th
-                  onClick={() => handleSort('name')}
-                  className="py-3 px-4 cursor-pointer hover:text-white transition-colors"
-                >
-                  <div className="flex items-center gap-1">
-                    <span>Student Name</span>
-                    {renderSortIcon('name')}
-                  </div>
-                </th>
-
-                {/* 3. Student ID */}
-                <th
-                  onClick={() => handleSort('id')}
-                  className="py-3 px-4 w-32 cursor-pointer hover:text-white transition-colors"
-                >
-                  <div className="flex items-center gap-1">
-                    <span>Student ID</span>
-                    {renderSortIcon('id')}
-                  </div>
-                </th>
-
-                {/* 4. Status */}
-                <th
-                  onClick={() => handleSort('status')}
-                  className="py-3 px-4 w-36 cursor-pointer hover:text-white transition-colors"
-                >
-                  <div className="flex items-center gap-1">
-                    <span>Status</span>
-                    {renderSortIcon('status')}
-                  </div>
-                </th>
-
-                {/* 5. Sessions Count */}
-                <th
-                  onClick={() => handleSort('sessions')}
-                  className="py-3 px-4 w-36 cursor-pointer hover:text-white transition-colors text-right"
-                >
-                  <div className="flex items-center justify-end gap-1">
-                    <span>Sessions Attended</span>
-                    {renderSortIcon('sessions')}
-                  </div>
-                </th>
-              </tr>
-
-              {/* Row 2: Per-Column Interactive Filters */}
-              <tr className="border-b border-[#27272a] bg-[#151518]/90 py-2">
-                {/* 1. Filter Rank */}
-                <th className="py-2 px-3">
-                  <select
-                    value={filterRank}
-                    onChange={(e) => setFilterRank(e.target.value as 'top5' | 'top3' | 'all')}
-                    className="w-full px-2 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-zinc-300 focus:outline-none focus:border-zinc-500"
-                  >
-                    <option value="top5">Top 5</option>
-                    <option value="top3">Top 3</option>
-                    <option value="all">All Ranks</option>
-                  </select>
-                </th>
-
-                {/* 2. Filter Name */}
-                <th className="py-2 px-3">
-                  <div className="relative">
-                    <Search className="w-3 h-3 absolute left-2 top-2 text-zinc-500 pointer-events-none" />
-                    <input
-                      type="text"
-                      placeholder="Filter name..."
-                      value={filterName}
-                      onChange={(e) => setFilterName(e.target.value)}
-                      className="w-full pl-6 pr-5 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-white focus:outline-none focus:border-zinc-500"
-                    />
-                    {filterName && (
-                      <button
-                        type="button"
-                        onClick={() => setFilterName('')}
-                        className="absolute right-1.5 top-1.5 text-zinc-500 hover:text-white text-xs"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                </th>
-
-                {/* 3. Filter ID */}
-                <th className="py-2 px-3">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Filter ID..."
-                      value={filterId}
-                      onChange={(e) => setFilterId(e.target.value)}
-                      className="w-full px-2 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-white focus:outline-none focus:border-zinc-500"
-                    />
-                    {filterId && (
-                      <button
-                        type="button"
-                        onClick={() => setFilterId('')}
-                        className="absolute right-1.5 top-1.5 text-zinc-500 hover:text-white text-xs"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                </th>
-
-                {/* 4. Filter Status */}
-                <th className="py-2 px-3">
-                  <select
-                    value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value as 'all' | 'in' | 'out')}
-                    className="w-full px-2 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-zinc-300 focus:outline-none focus:border-zinc-500"
-                  >
-                    <option value="all">All</option>
-                    <option value="in">Signed In</option>
-                    <option value="out">Signed Out</option>
-                  </select>
-                </th>
-
-                {/* 5. Filter Sessions */}
-                <th className="py-2 px-3 text-right">
-                  <select
-                    value={filterSessions}
-                    onChange={(e) =>
-                      setFilterSessions(e.target.value as 'all' | 'gte_1' | 'gte_3' | 'gte_5')
-                    }
-                    className="w-full px-2 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-zinc-300 focus:outline-none focus:border-zinc-500"
-                  >
-                    <option value="all">All</option>
-                    <option value="gte_1">≥ 1 Session</option>
-                    <option value="gte_3">≥ 3 Sessions</option>
-                    <option value="gte_5">≥ 5 Sessions</option>
-                  </select>
-                </th>
-              </tr>
-            </thead>
-
-            {/* Table Body */}
-            <tbody className="divide-y divide-[#27272a] text-zinc-300">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={5} className="py-12 text-center text-zinc-500">
-                    Loading top 5 student rankings...
-                  </td>
-                </tr>
-              ) : filteredAndSorted.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-12 text-center text-zinc-500">
-                    <div>No students match your filter criteria.</div>
-                    <button
-                      type="button"
-                      onClick={clearAllFilters}
-                      className="mt-2 text-cyan-400 hover:underline"
-                    >
-                      Reset all filters
-                    </button>
-                  </td>
-                </tr>
-              ) : (
-                filteredAndSorted.map((student) => {
-                  const rankBadge =
-                    student.baseRank === 1 ? (
-                      <span className="inline-flex items-center gap-1 font-bold text-amber-300">
-                        <span>🥇</span> #1
-                      </span>
-                    ) : student.baseRank === 2 ? (
-                      <span className="inline-flex items-center gap-1 font-bold text-zinc-300">
-                        <span>🥈</span> #2
-                      </span>
-                    ) : student.baseRank === 3 ? (
-                      <span className="inline-flex items-center gap-1 font-bold text-amber-500">
-                        <span>🥉</span> #3
-                      </span>
-                    ) : student.baseRank === 4 ? (
-                      <span className="inline-flex items-center gap-1 font-bold text-cyan-400">
-                        <span>🏅</span> #4
-                      </span>
-                    ) : student.baseRank === 5 ? (
-                      <span className="inline-flex items-center gap-1 font-bold text-indigo-400">
-                        <span>🏅</span> #5
-                      </span>
-                    ) : (
-                      <span className="text-zinc-500 font-medium">#{student.baseRank}</span>
-                    );
-
-                  return (
-                    <tr
-                      key={student.id}
-                      className={`hover:bg-zinc-850/50 transition-colors ${
-                        student.baseRank === 1 ? 'bg-amber-950/10' : ''
-                      }`}
-                    >
-                      {/* Rank */}
-                      <td className="py-3 px-4">{rankBadge}</td>
-
-                      {/* Name */}
-                      <td className="py-3 px-4 font-semibold text-white">
-                        <div className="flex items-center gap-2">
-                          <span>{student.name}</span>
-                          {student.isClockedIn && (
-                            <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-1.5 py-0.5 rounded font-bold">
-                              Present
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* ID */}
-                      <td className="py-3 px-4 text-zinc-400">{student.id}</td>
-
-                      {/* Status */}
-                      <td className="py-3 px-4">
-                        {student.isClockedIn ? (
-                          <span className="inline-flex items-center gap-1.5 text-emerald-400 font-medium">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                            Signed In
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 text-zinc-500">
-                            <span className="w-2 h-2 rounded-full bg-zinc-600" />
-                            Signed Out
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Sessions Attended */}
-                      <td className="py-3 px-4 text-right font-bold text-white">
-                        {student.sessionsCount || 0}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
