@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PunchResponse, HourCategory } from '../types/attendance';
 import { AdminPasswordModal } from './AdminPasswordModal';
 import {
@@ -178,13 +178,14 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) =>
       setStudentId('');
       onPunchSuccess?.();
 
-      // Auto close after 3.5 seconds
+      // Auto close after 1.0 second (flash confirmation)
       if (autoCloseTimerRef.current) {
         clearTimeout(autoCloseTimerRef.current);
       }
       autoCloseTimerRef.current = setTimeout(() => {
         setSignalModal(null);
-      }, 3500);
+        inputRef.current?.focus();
+      }, 1000);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'An error occurred.');
       setStudentId('');
@@ -193,13 +194,27 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) =>
     }
   };
 
-  const closeSignalModalNow = (): void => {
+  const closeSignalModalNow = useCallback((): void => {
     if (autoCloseTimerRef.current) {
       clearTimeout(autoCloseTimerRef.current);
     }
     setSignalModal(null);
     inputRef.current?.focus();
-  };
+  }, []);
+
+  // Instant dismissal on any keypress or tap during flash so next student can type immediately
+  useEffect(() => {
+    if (!signalModal) return;
+
+    const handleKeyDown = () => {
+      closeSignalModalNow();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [signalModal, closeSignalModalNow]);
 
   // =========================================================================
   // VIEW 1: LOCKED SCREEN (Requires admin password before any student entry)
@@ -567,7 +582,7 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) =>
       {signalModal && (
         <div
           onClick={closeSignalModalNow}
-          className={`fixed inset-0 z-50 flex flex-col items-center justify-center p-6 text-white text-center cursor-pointer transition-all duration-300 animate-in fade-in zoom-in-95 ${
+          className={`fixed inset-0 z-50 flex flex-col items-center justify-center p-6 text-white text-center cursor-pointer transition-all duration-150 animate-in fade-in zoom-in-95 ${
             signalModal.type === 'in' ? 'bg-[#059669]' : 'bg-[#e11d48]'
           }`}
         >

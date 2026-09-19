@@ -90,6 +90,15 @@ export const AdminDashboard: React.FC = () => {
     void fetchEntries();
   }, [fetchStudents, fetchEntries]);
 
+  useEffect(() => {
+    if (actionSuccess) {
+      const timer = setTimeout(() => {
+        setActionSuccess(null);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [actionSuccess]);
+
   // Helper to categorize attendance entry note
   const getEntryCategory = useCallback((note?: string): HourCategory => {
     const text = (note || '').toLowerCase();
