@@ -802,6 +802,11 @@ app.get('/api/members', async (_req: Request, res: Response): Promise<void> => {
   }
 });
 
-app.listen(PORT, () => {
-  process.stdout.write(`Server running on http://localhost:${PORT}\n`);
-});
+export { app };
+export default app;
+
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    process.stdout.write(`Server running on http://localhost:${PORT}\n`);
+  });
+}

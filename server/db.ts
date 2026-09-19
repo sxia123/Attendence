@@ -83,27 +83,6 @@ export async function initDb(): Promise<void> {
         args: ['lead_pin', defaultPin],
       });
     }
-
-    // Seed initial members if roster is empty
-    const existingMembers = await db.execute('SELECT COUNT(*) as count FROM members');
-    const memberCount = Number(existingMembers.rows[0]?.count ?? 0);
-
-    if (memberCount === 0) {
-      const initialTeam = [
-        { id: '10101', name: 'Sarah Jenkins', role: 'lead' },
-        { id: '10102', name: 'David Chen', role: 'member' },
-        { id: '10103', name: 'Alex Rivera', role: 'member' },
-        { id: '10104', name: 'Emily Watson', role: 'member' },
-        { id: '10105', name: 'Marcus Vance', role: 'lead' },
-      ];
-
-      for (const m of initialTeam) {
-        await db.execute({
-          sql: 'INSERT INTO members (id, name, role, is_clocked_in) VALUES (?, ?, ?, 0)',
-          args: [m.id, m.name, m.role],
-        });
-      }
-    }
   } catch (error) {
     throw new Error(`Database initialization failed: ${error instanceof Error ? error.message : String(error)}`);
   }
