@@ -1,3 +1,5 @@
+export type HourCategory = 'Build' | 'Learning Day' | 'Preseason' | 'Demo';
+
 export interface Student {
   id: string; // 5 digits (e.g., "10101")
   name: string;
@@ -18,6 +20,7 @@ export interface AttendanceEntry {
   durationMinutes?: number;
   status: 'active' | 'completed';
   note?: string;
+  category?: HourCategory;
 }
 
 export interface PunchResponse {

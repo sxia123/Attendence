@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Student, AttendanceEntry } from '../types/attendance';
+import { Student, AttendanceEntry, HourCategory } from '../types/attendance';
 import {
   LogOut,
   Download,
@@ -33,7 +33,7 @@ interface ActiveEditSession {
   durationMinutes: number;
   timeIn: string;
   timeOut: string;
-  hourType: 'Build' | 'Learning' | 'Outreach' | 'Offseason';
+  hourType: HourCategory;
   entryId?: string;
 }
 
@@ -46,12 +46,14 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
   // Column Filters
   const [filterName, setFilterName] = useState<string>('');
   const [filterId, setFilterId] = useState<string>('');
-  const [filterToday, setFilterToday] = useState<'all' | 'has_hours' | 'active' | 'no_hours'>('all');
-  const [filterYesterday, setFilterYesterday] = useState<'all' | 'has_hours' | 'no_hours'>('all');
+  const [filterBuild, setFilterBuild] = useState<'all' | 'has_hours' | 'gte_5' | 'gte_10' | 'no_hours'>('all');
+  const [filterLearning, setFilterLearning] = useState<'all' | 'has_hours' | 'gte_5' | 'gte_10' | 'no_hours'>('all');
+  const [filterPreseason, setFilterPreseason] = useState<'all' | 'has_hours' | 'gte_5' | 'gte_10' | 'no_hours'>('all');
+  const [filterDemo, setFilterDemo] = useState<'all' | 'has_hours' | 'gte_5' | 'gte_10' | 'no_hours'>('all');
   const [filterTotalHours, setFilterTotalHours] = useState<'all' | 'gt_0' | 'gte_5' | 'gte_10' | 'gte_20'>('all');
 
   // Column Sort
-  type SortColumn = 'name' | 'id' | 'today' | 'yesterday' | 'total' | null;
+  type SortColumn = 'name' | 'id' | 'build' | 'learning' | 'preseason' | 'demo' | 'total' | null;
   type SortDirection = 'asc' | 'desc';
   const [sortColumn, setSortColumn] = useState<SortColumn>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
@@ -116,11 +118,40 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
     void fetchEntries();
   }, [fetchStudents, fetchEntries]);
 
-  // Today and Yesterday date strings
   const todayStr = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+  // Helper to categorize attendance entry
+  const getEntryCategory = useCallback((entry: AttendanceEntry): HourCategory => {
+    const text = (entry.note || '').toLowerCase();
+    if (text.includes('learning')) return 'Learning Day';
+    if (text.includes('preseason') || text.includes('offseason')) return 'Preseason';
+    if (text.includes('demo') || text.includes('outreach') || text.includes('event')) return 'Demo';
+    return 'Build';
+  }, []);
+
+  // Precompute minutes per student per category
+  const studentCategoryHoursMap = useMemo(() => {
+    const map = new Map<
+      string,
+      { build: number; learning: number; preseason: number; demo: number; total: number }
+    >();
+    for (const s of students) {
+      map.set(s.id, { build: 0, learning: 0, preseason: 0, demo: 0, total: s.totalMinutes || 0 });
+    }
+    for (const e of entries) {
+      if (e.status === 'completed' && e.durationMinutes) {
+        const item = map.get(e.studentId);
+        if (item) {
+          const cat = getEntryCategory(e);
+          if (cat === 'Build') item.build += e.durationMinutes;
+          else if (cat === 'Learning Day') item.learning += e.durationMinutes;
+          else if (cat === 'Preseason') item.preseason += e.durationMinutes;
+          else if (cat === 'Demo') item.demo += e.durationMinutes;
+        }
+      }
+    }
+    return map;
+  }, [students, entries, getEntryCategory]);
 
   // Sorting helper
   const handleSort = (col: SortColumn) => {
@@ -128,7 +159,11 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
       setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortColumn(col);
-      setSortDirection(col === 'today' || col === 'yesterday' || col === 'total' ? 'desc' : 'asc');
+      setSortDirection(
+        col === 'build' || col === 'learning' || col === 'preseason' || col === 'demo' || col === 'total'
+          ? 'desc'
+          : 'asc'
+      );
     }
   };
 
@@ -155,39 +190,51 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
         if (filterId.trim() && !student.id.includes(filterId.trim())) {
           return false;
         }
-        // 3. Today filter
-        const todayEntry = entries.find((e) => e.studentId === student.id && e.date === todayStr);
-        if (filterToday === 'has_hours' && (!todayEntry || (todayEntry.durationMinutes || 0) <= 0)) {
-          return false;
-        }
-        if (filterToday === 'active' && todayEntry?.status !== 'active') {
-          return false;
-        }
-        if (filterToday === 'no_hours' && todayEntry && (todayEntry.durationMinutes || 0) > 0) {
-          return false;
-        }
-        // 4. Yesterday filter
-        const yestEntry = entries.find((e) => e.studentId === student.id && e.date === yesterdayStr);
-        if (filterYesterday === 'has_hours' && (!yestEntry || (yestEntry.durationMinutes || 0) <= 0)) {
-          return false;
-        }
-        if (filterYesterday === 'no_hours' && yestEntry && (yestEntry.durationMinutes || 0) > 0) {
-          return false;
-        }
-        // 5. Total Hours filter
-        const totalHrs = student.totalMinutes / 60;
-        if (filterTotalHours === 'gt_0' && totalHrs <= 0) {
-          return false;
-        }
-        if (filterTotalHours === 'gte_5' && totalHrs < 5) {
-          return false;
-        }
-        if (filterTotalHours === 'gte_10' && totalHrs < 10) {
-          return false;
-        }
-        if (filterTotalHours === 'gte_20' && totalHrs < 20) {
-          return false;
-        }
+
+        const stats = studentCategoryHoursMap.get(student.id) || {
+          build: 0,
+          learning: 0,
+          preseason: 0,
+          demo: 0,
+          total: 0,
+        };
+        const buildHrs = stats.build / 60;
+        const learningHrs = stats.learning / 60;
+        const preseasonHrs = stats.preseason / 60;
+        const demoHrs = stats.demo / 60;
+        const totalHrs =
+          (stats.total || (stats.build + stats.learning + stats.preseason + stats.demo)) / 60;
+
+        // 3. Build filter
+        if (filterBuild === 'has_hours' && buildHrs <= 0) return false;
+        if (filterBuild === 'gte_5' && buildHrs < 5) return false;
+        if (filterBuild === 'gte_10' && buildHrs < 10) return false;
+        if (filterBuild === 'no_hours' && buildHrs > 0) return false;
+
+        // 4. Learning Day filter
+        if (filterLearning === 'has_hours' && learningHrs <= 0) return false;
+        if (filterLearning === 'gte_5' && learningHrs < 5) return false;
+        if (filterLearning === 'gte_10' && learningHrs < 10) return false;
+        if (filterLearning === 'no_hours' && learningHrs > 0) return false;
+
+        // 5. Preseason filter
+        if (filterPreseason === 'has_hours' && preseasonHrs <= 0) return false;
+        if (filterPreseason === 'gte_5' && preseasonHrs < 5) return false;
+        if (filterPreseason === 'gte_10' && preseasonHrs < 10) return false;
+        if (filterPreseason === 'no_hours' && preseasonHrs > 0) return false;
+
+        // 6. Demo filter
+        if (filterDemo === 'has_hours' && demoHrs <= 0) return false;
+        if (filterDemo === 'gte_5' && demoHrs < 5) return false;
+        if (filterDemo === 'gte_10' && demoHrs < 10) return false;
+        if (filterDemo === 'no_hours' && demoHrs > 0) return false;
+
+        // 7. Total Hours filter
+        if (filterTotalHours === 'gt_0' && totalHrs <= 0) return false;
+        if (filterTotalHours === 'gte_5' && totalHrs < 5) return false;
+        if (filterTotalHours === 'gte_10' && totalHrs < 10) return false;
+        if (filterTotalHours === 'gte_20' && totalHrs < 20) return false;
+
         return true;
       })
       .sort((a, b) => {
@@ -195,25 +242,42 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
         let valA: string | number = 0;
         let valB: string | number = 0;
 
+        const statsA = studentCategoryHoursMap.get(a.id) || {
+          build: 0,
+          learning: 0,
+          preseason: 0,
+          demo: 0,
+          total: 0,
+        };
+        const statsB = studentCategoryHoursMap.get(b.id) || {
+          build: 0,
+          learning: 0,
+          preseason: 0,
+          demo: 0,
+          total: 0,
+        };
+
         if (sortColumn === 'name') {
           valA = a.name.toLowerCase();
           valB = b.name.toLowerCase();
         } else if (sortColumn === 'id') {
           valA = a.id;
           valB = b.id;
-        } else if (sortColumn === 'today') {
-          const eA = entries.find((e) => e.studentId === a.id && e.date === todayStr);
-          const eB = entries.find((e) => e.studentId === b.id && e.date === todayStr);
-          valA = eA?.durationMinutes || 0;
-          valB = eB?.durationMinutes || 0;
-        } else if (sortColumn === 'yesterday') {
-          const eA = entries.find((e) => e.studentId === a.id && e.date === yesterdayStr);
-          const eB = entries.find((e) => e.studentId === b.id && e.date === yesterdayStr);
-          valA = eA?.durationMinutes || 0;
-          valB = eB?.durationMinutes || 0;
+        } else if (sortColumn === 'build') {
+          valA = statsA.build;
+          valB = statsB.build;
+        } else if (sortColumn === 'learning') {
+          valA = statsA.learning;
+          valB = statsB.learning;
+        } else if (sortColumn === 'preseason') {
+          valA = statsA.preseason;
+          valB = statsB.preseason;
+        } else if (sortColumn === 'demo') {
+          valA = statsA.demo;
+          valB = statsB.demo;
         } else if (sortColumn === 'total') {
-          valA = a.totalMinutes;
-          valB = b.totalMinutes;
+          valA = statsA.total || (statsA.build + statsA.learning + statsA.preseason + statsA.demo);
+          valB = statsB.total || (statsB.build + statsB.learning + statsB.preseason + statsB.demo);
         }
 
         if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
@@ -222,30 +286,34 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
       });
   }, [
     students,
-    entries,
+    studentCategoryHoursMap,
     filterName,
     filterId,
-    filterToday,
-    filterYesterday,
+    filterBuild,
+    filterLearning,
+    filterPreseason,
+    filterDemo,
     filterTotalHours,
     sortColumn,
     sortDirection,
-    todayStr,
-    yesterdayStr,
   ]);
 
   const hasActiveFilters =
     Boolean(filterName.trim()) ||
     Boolean(filterId.trim()) ||
-    filterToday !== 'all' ||
-    filterYesterday !== 'all' ||
+    filterBuild !== 'all' ||
+    filterLearning !== 'all' ||
+    filterPreseason !== 'all' ||
+    filterDemo !== 'all' ||
     filterTotalHours !== 'all';
 
   const clearAllFilters = () => {
     setFilterName('');
     setFilterId('');
-    setFilterToday('all');
-    setFilterYesterday('all');
+    setFilterBuild('all');
+    setFilterLearning('all');
+    setFilterPreseason('all');
+    setFilterDemo('all');
     setFilterTotalHours('all');
     setSortColumn(null);
   };
@@ -317,17 +385,19 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
   };
 
   // Open Edit Session Modal
-  const openEditSession = (student: Student, dateStr: string): void => {
-    const existing = entries.find((e) => e.studentId === student.id && e.date === dateStr);
+  const openEditSession = (student: Student, category: HourCategory = 'Build'): void => {
+    const existing = entries.find(
+      (e) => e.studentId === student.id && getEntryCategory(e) === category
+    );
     const duration = existing?.durationMinutes || 180;
 
     setActiveSessionModal({
       student,
-      dateStr,
+      dateStr: existing?.date || todayStr,
       durationMinutes: duration,
-      timeIn: existing?.timeIn || `${dateStr}T17:00:00.000Z`,
-      timeOut: existing?.timeOut || `${dateStr}T20:00:00.000Z`,
-      hourType: 'Build',
+      timeIn: existing?.timeIn || `${todayStr}T17:00:00.000Z`,
+      timeOut: existing?.timeOut || `${todayStr}T20:00:00.000Z`,
+      hourType: category,
       entryId: existing?.id,
     });
 
@@ -362,7 +432,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
           body: JSON.stringify({
             durationMinutes: diffMinutes,
             date: activeSessionModal.dateStr,
-            note: `${activeSessionModal.hourType} Season session`,
+            note: `${activeSessionModal.hourType} session`,
           }),
         });
       } else {
@@ -373,7 +443,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
             studentId: activeSessionModal.student.id,
             minutes: diffMinutes,
             date: activeSessionModal.dateStr,
-            note: `${activeSessionModal.hourType} Season session`,
+            note: `${activeSessionModal.hourType} session`,
           }),
         });
       }
@@ -405,7 +475,11 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
 
   // CSV Import handlers
   const handleDownloadSampleCsv = (): void => {
-    const sampleContent = `Student ID,Student Name,Total Hours,Date\n10101,Alex Rivera,3.5,${todayStr}\n10102,Sarah Chen,4.0,${todayStr}\n10103,Marcus Johnson,2.0,${todayStr}\n`;
+    const sampleContent = `Student ID,Student Name,Build Hours,Learning Day Hours,Preseason Hours,Demo Hours,Total Hours
+10101,Alex Rivera,12.5,4.0,6.0,3.5,26.0
+10102,Sarah Chen,10.0,6.0,4.0,2.0,22.0
+10103,Marcus Johnson,8.5,2.0,3.0,1.5,15.0
+`;
     const blob = new Blob([sampleContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -624,8 +698,8 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                 <th colSpan={2} className="py-2 px-4">
                   Student Info &gt;
                 </th>
-                <th colSpan={2} className="py-2 px-4">
-                  Hours
+                <th colSpan={4} className="py-2 px-4">
+                  Hours by Category &gt;
                 </th>
                 <th className="py-2 px-4 text-right">
                   Totals &gt;
@@ -654,21 +728,39 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                   </div>
                 </th>
                 <th
-                  onClick={() => handleSort('today')}
+                  onClick={() => handleSort('build')}
                   className="py-2.5 px-4 cursor-pointer hover:text-white transition-colors"
                 >
                   <div className="flex items-center gap-1">
-                    <span>Today ({todayStr.slice(5)})</span>
-                    {renderSortIcon('today')}
+                    <span>Build Hours</span>
+                    {renderSortIcon('build')}
                   </div>
                 </th>
                 <th
-                  onClick={() => handleSort('yesterday')}
+                  onClick={() => handleSort('learning')}
                   className="py-2.5 px-4 cursor-pointer hover:text-white transition-colors"
                 >
                   <div className="flex items-center gap-1">
-                    <span>Yesterday ({yesterdayStr.slice(5)})</span>
-                    {renderSortIcon('yesterday')}
+                    <span>Learning Day Hours</span>
+                    {renderSortIcon('learning')}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('preseason')}
+                  className="py-2.5 px-4 cursor-pointer hover:text-white transition-colors"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Preseason Hours</span>
+                    {renderSortIcon('preseason')}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('demo')}
+                  className="py-2.5 px-4 cursor-pointer hover:text-white transition-colors"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Demo Hours</span>
+                    {renderSortIcon('demo')}
                   </div>
                 </th>
                 <th
@@ -744,38 +836,83 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                   </div>
                 </th>
 
-                {/* 3. Today Filter */}
+                {/* 3. Build Hours Filter */}
                 <th className="py-2 px-4">
                   <select
-                    value={filterToday}
+                    value={filterBuild}
                     onChange={(e) =>
-                      setFilterToday(e.target.value as 'all' | 'has_hours' | 'active' | 'no_hours')
+                      setFilterBuild(
+                        e.target.value as 'all' | 'has_hours' | 'gte_5' | 'gte_10' | 'no_hours'
+                      )
                     }
                     className="w-full px-2 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-zinc-300 focus:outline-none focus:border-zinc-500"
                   >
                     <option value="all">All</option>
-                    <option value="has_hours">Has Hours</option>
-                    <option value="active">Ongoing</option>
-                    <option value="no_hours">No Hours</option>
+                    <option value="has_hours">&gt; 0 hrs</option>
+                    <option value="gte_5">≥ 5 hrs</option>
+                    <option value="gte_10">≥ 10 hrs</option>
+                    <option value="no_hours">0 hrs</option>
                   </select>
                 </th>
 
-                {/* 4. Yesterday Filter */}
+                {/* 4. Learning Day Hours Filter */}
                 <th className="py-2 px-4">
                   <select
-                    value={filterYesterday}
+                    value={filterLearning}
                     onChange={(e) =>
-                      setFilterYesterday(e.target.value as 'all' | 'has_hours' | 'no_hours')
+                      setFilterLearning(
+                        e.target.value as 'all' | 'has_hours' | 'gte_5' | 'gte_10' | 'no_hours'
+                      )
                     }
                     className="w-full px-2 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-zinc-300 focus:outline-none focus:border-zinc-500"
                   >
                     <option value="all">All</option>
-                    <option value="has_hours">Has Hours</option>
-                    <option value="no_hours">No Hours</option>
+                    <option value="has_hours">&gt; 0 hrs</option>
+                    <option value="gte_5">≥ 5 hrs</option>
+                    <option value="gte_10">≥ 10 hrs</option>
+                    <option value="no_hours">0 hrs</option>
                   </select>
                 </th>
 
-                {/* 5. Total Hours Filter */}
+                {/* 5. Preseason Hours Filter */}
+                <th className="py-2 px-4">
+                  <select
+                    value={filterPreseason}
+                    onChange={(e) =>
+                      setFilterPreseason(
+                        e.target.value as 'all' | 'has_hours' | 'gte_5' | 'gte_10' | 'no_hours'
+                      )
+                    }
+                    className="w-full px-2 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-zinc-300 focus:outline-none focus:border-zinc-500"
+                  >
+                    <option value="all">All</option>
+                    <option value="has_hours">&gt; 0 hrs</option>
+                    <option value="gte_5">≥ 5 hrs</option>
+                    <option value="gte_10">≥ 10 hrs</option>
+                    <option value="no_hours">0 hrs</option>
+                  </select>
+                </th>
+
+                {/* 6. Demo Hours Filter */}
+                <th className="py-2 px-4">
+                  <select
+                    value={filterDemo}
+                    onChange={(e) =>
+                      setFilterDemo(
+                        e.target.value as 'all' | 'has_hours' | 'gte_5' | 'gte_10' | 'no_hours'
+                      )
+                    }
+                    className="w-full px-2 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-zinc-300 focus:outline-none focus:border-zinc-500"
+                  >
+                    <option value="all">All</option>
+                    <option value="has_hours">&gt; 0 hrs</option>
+                    <option value="gte_5">≥ 5 hrs</option>
+                    <option value="gte_10">≥ 10 hrs</option>
+                    <option value="no_hours">0 hrs</option>
+                  </select>
+                </th>
+
+                {/* 7. Total Hours Filter */}
                 <th className="py-2 px-4 text-right">
                   <select
                     value={filterTotalHours}
@@ -796,37 +933,33 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-[#27272a] text-zinc-300">
+            <tbody className="divide-y divide-[#27272a]">
               {filteredAndSortedStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-zinc-500">
-                    {students.length === 0 ? (
-                      'No students found. Click "Add Student" above.'
-                    ) : (
-                      <div>
-                        <div>No students match the current column filters.</div>
-                        <button
-                          type="button"
-                          onClick={clearAllFilters}
-                          className="mt-2 text-cyan-400 hover:underline"
-                        >
-                          Reset all column filters
-                        </button>
-                      </div>
-                    )}
+                  <td colSpan={8} className="py-12 text-center text-zinc-500 font-sans">
+                    {hasActiveFilters
+                      ? 'No students match the current filters.'
+                      : 'No students registered.'}
                   </td>
                 </tr>
               ) : (
                 filteredAndSortedStudents.map((student) => {
-                  const todayEntry = entries.find(
-                    (e) => e.studentId === student.id && e.date === todayStr
-                  );
-                  const yestEntry = entries.find(
-                    (e) => e.studentId === student.id && e.date === yesterdayStr
-                  );
-
                   const isChecked = selectedStudentIds.includes(student.id);
-                  const totalHrs = (student.totalMinutes / 60).toFixed(1);
+                  const stats = studentCategoryHoursMap.get(student.id) || {
+                    build: 0,
+                    learning: 0,
+                    preseason: 0,
+                    demo: 0,
+                    total: 0,
+                  };
+                  const buildHrs = (stats.build / 60).toFixed(1);
+                  const learningHrs = (stats.learning / 60).toFixed(1);
+                  const preseasonHrs = (stats.preseason / 60).toFixed(1);
+                  const demoHrs = (stats.demo / 60).toFixed(1);
+                  const totalHrs = (
+                    (stats.total || (stats.build + stats.learning + stats.preseason + stats.demo)) /
+                    60
+                  ).toFixed(1);
 
                   return (
                     <tr key={student.id} className="hover:bg-zinc-850/40 transition-colors">
@@ -850,48 +983,68 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                         {student.id}
                       </td>
 
-                      {/* Today's Hours */}
+                      {/* Build Hours */}
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
-                          <span
-                            className={
-                              todayEntry?.status === 'active'
-                                ? 'text-emerald-400 font-bold animate-pulse'
-                                : todayEntry
-                                ? 'text-zinc-200'
-                                : 'text-zinc-500'
-                            }
-                          >
-                            {todayEntry?.status === 'active'
-                              ? 'Ongoing'
-                              : todayEntry
-                              ? `${((todayEntry.durationMinutes || 0) / 60).toFixed(1)} Hours`
-                              : 'No data'}
+                          <span className={stats.build > 0 ? 'text-zinc-200' : 'text-zinc-600'}>
+                            {buildHrs} hrs
                           </span>
                           <button
                             type="button"
-                            onClick={() => openEditSession(student, todayStr)}
-                            className="p-1 text-zinc-500 hover:text-white rounded hover:bg-zinc-800 transition-colors"
-                            title="Edit session"
+                            onClick={() => openEditSession(student, 'Build')}
+                            className="p-1 text-zinc-600 hover:text-cyan-400 rounded hover:bg-zinc-800 transition-colors"
+                            title="Edit Build Hours"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </td>
 
-                      {/* Yesterday's Hours */}
+                      {/* Learning Day Hours */}
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
-                          <span className={yestEntry ? 'text-zinc-200' : 'text-zinc-500'}>
-                            {yestEntry
-                              ? `${((yestEntry.durationMinutes || 0) / 60).toFixed(1)} Hours`
-                              : 'No data'}
+                          <span className={stats.learning > 0 ? 'text-zinc-200' : 'text-zinc-600'}>
+                            {learningHrs} hrs
                           </span>
                           <button
                             type="button"
-                            onClick={() => openEditSession(student, yesterdayStr)}
-                            className="p-1 text-zinc-500 hover:text-white rounded hover:bg-zinc-800 transition-colors"
-                            title="Edit session"
+                            onClick={() => openEditSession(student, 'Learning Day')}
+                            className="p-1 text-zinc-600 hover:text-cyan-400 rounded hover:bg-zinc-800 transition-colors"
+                            title="Edit Learning Day Hours"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+
+                      {/* Preseason Hours */}
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <span className={stats.preseason > 0 ? 'text-zinc-200' : 'text-zinc-600'}>
+                            {preseasonHrs} hrs
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openEditSession(student, 'Preseason')}
+                            className="p-1 text-zinc-600 hover:text-cyan-400 rounded hover:bg-zinc-800 transition-colors"
+                            title="Edit Preseason Hours"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+
+                      {/* Demo Hours */}
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <span className={stats.demo > 0 ? 'text-zinc-200' : 'text-zinc-600'}>
+                            {demoHrs} hrs
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openEditSession(student, 'Demo')}
+                            className="p-1 text-zinc-600 hover:text-cyan-400 rounded hover:bg-zinc-800 transition-colors"
+                            title="Edit Demo Hours"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
@@ -900,7 +1053,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
 
                       {/* Accumulated Total Hours */}
                       <td className="py-3 px-4 text-right font-bold text-white text-sm">
-                        {totalHrs} Hours
+                        {totalHrs} hrs
                       </td>
                     </tr>
                   );
@@ -948,7 +1101,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                 Hour Type
               </label>
               <div className="grid grid-cols-4 gap-1 bg-[#121214] p-1 rounded-xl border border-[#27272a] text-xs">
-                {(['Build', 'Learning', 'Outreach', 'Offseason'] as const).map((type) => (
+                {(['Build', 'Learning Day', 'Preseason', 'Demo'] as const).map((type) => (
                   <button
                     key={type}
                     type="button"
@@ -1305,7 +1458,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                       <strong className="text-zinc-200">Student Name</strong> (Required, e.g. Alex Rivera)
                     </li>
                     <li>
-                      <strong className="text-zinc-200">Total Hours</strong> or <strong className="text-zinc-200">Minutes</strong> (Optional: e.g. 3.5 or 210)
+                      <strong className="text-zinc-200">Category Columns</strong>: Build Hours, Learning Day Hours, Preseason Hours, Demo Hours (or generic Total Hours)
                     </li>
                     <li>
                       <strong className="text-zinc-200">Date</strong> (Optional: YYYY-MM-DD)

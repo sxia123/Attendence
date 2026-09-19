@@ -40,7 +40,7 @@ async function getDeveloperCode(): Promise<string> {
 // POST /api/punch - Sign In or Sign Out with 5-digit Student ID
 app.post('/api/punch', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.body as { id?: string };
+    const { id, category } = req.body as { id?: string; category?: string };
     if (!id || typeof id !== 'string') {
       res.status(400).json({ error: 'Please enter your 5-digit Student ID.' });
       return;
@@ -76,9 +76,10 @@ app.post('/api/punch', async (req: Request, res: Response): Promise<void> => {
       // SIGN IN (Clock In)
       // -----------------
       const entryId = crypto.randomUUID();
+      const sessionNote = category ? `${category} session` : 'Build session';
       await db.execute({
-        sql: 'INSERT INTO attendance_entries (id, member_id, member_name, date, time_in, status) VALUES (?, ?, ?, ?, ?, ?)',
-        args: [entryId, cleanId, String(student.name), dateStr, nowIso, 'active'],
+        sql: 'INSERT INTO attendance_entries (id, member_id, member_name, date, time_in, status, note) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        args: [entryId, cleanId, String(student.name), dateStr, nowIso, 'active', sessionNote],
       });
 
       await db.execute({
@@ -464,17 +465,44 @@ app.get('/api/developer/export-csv', async (_req: Request, res: Response): Promi
     // 2. All attendance entries
     const entriesResult = await db.execute('SELECT date, member_name, member_id, time_in, time_out, duration_minutes, status, note FROM attendance_entries ORDER BY time_in DESC');
 
+    // Compute category totals per student
+    const studentCategories = new Map<string, { build: number; learning: number; preseason: number; demo: number; total: number }>();
+    for (const s of studentsResult.rows) {
+      studentCategories.set(String(s.id), { build: 0, learning: 0, preseason: 0, demo: 0, total: 0 });
+    }
+
+    for (const r of entriesResult.rows) {
+      if (r.status === 'completed' && r.duration_minutes) {
+        const sId = String(r.member_id);
+        const mins = Number(r.duration_minutes);
+        const rec = studentCategories.get(sId) || { build: 0, learning: 0, preseason: 0, demo: 0, total: 0 };
+        const note = String(r.note || '').toLowerCase();
+        if (note.includes('learning')) rec.learning += mins;
+        else if (note.includes('preseason') || note.includes('offseason')) rec.preseason += mins;
+        else if (note.includes('demo') || note.includes('outreach') || note.includes('event')) rec.demo += mins;
+        else rec.build += mins;
+        rec.total += mins;
+        studentCategories.set(sId, rec);
+      }
+    }
+
     const lines: string[] = [];
 
     // Summary section
-    lines.push('=== TOTAL ACCUMULATED HOURS ACROSS ALL DAYS ===');
-    lines.push('Student Name,Student ID,Total Minutes,Total Hours (HH:MM)');
+    lines.push('=== TOTAL ACCUMULATED HOURS BY CATEGORY ===');
+    lines.push('Student Name,Student ID,Build Hours,Learning Day Hours,Preseason Hours,Demo Hours,Total Hours');
     for (const s of studentsResult.rows) {
       const sId = String(s.id);
-      const mins = totalsMap.get(sId) || 0;
-      const h = Math.floor(mins / 60);
-      const m = mins % 60;
-      lines.push(`"${String(s.name).replace(/"/g, '""')}","${sId}",${mins},"${h}h ${m}m"`);
+      const c = studentCategories.get(sId) || { build: 0, learning: 0, preseason: 0, demo: 0, total: 0 };
+      lines.push([
+        `"${String(s.name).replace(/"/g, '""')}"`,
+        `"${sId}"`,
+        (c.build / 60).toFixed(1),
+        (c.learning / 60).toFixed(1),
+        (c.preseason / 60).toFixed(1),
+        (c.demo / 60).toFixed(1),
+        (c.total / 60).toFixed(1),
+      ].join(','));
     }
 
     lines.push('');
@@ -593,6 +621,20 @@ app.post('/api/developer/import-csv', async (req: Request, res: Response): Promi
       ['note', 'notes', 'category'].includes(h)
     );
 
+    // Specific category hour columns
+    const buildIndex = normalizedHeaders.findIndex((h) =>
+      ['build', 'buildhours', 'buildseason'].includes(h)
+    );
+    const learningIndex = normalizedHeaders.findIndex((h) =>
+      ['learning', 'learningday', 'learninghours', 'learningdayhours'].includes(h)
+    );
+    const preseasonIndex = normalizedHeaders.findIndex((h) =>
+      ['preseason', 'preseasonhours', 'offseason', 'offseasonhours'].includes(h)
+    );
+    const demoIndex = normalizedHeaders.findIndex((h) =>
+      ['demo', 'demohours', 'demos', 'outreach', 'outreachhours'].includes(h)
+    );
+
     if (idIndex === -1 && nameIndex === -1) {
       res.status(400).json({
         error: 'CSV must contain at least "Student ID" and "Student Name" columns.',
@@ -652,26 +694,54 @@ app.post('/api/developer/import-csv', async (req: Request, res: Response): Promi
         }
       }
 
-      // Check if row has hours or minutes to add
-      let durationMinutes = 0;
-      if (minutesIndex !== -1 && cells[minutesIndex]) {
-        durationMinutes = parseInt(cells[minutesIndex].replace(/[^\d.-]/g, ''), 10) || 0;
-      } else if (hoursIndex !== -1 && cells[hoursIndex]) {
-        const hrs = parseFloat(cells[hoursIndex].replace(/[^\d.-]/g, '')) || 0;
-        durationMinutes = Math.round(hrs * 60);
+      // Check if row has specific category columns
+      const categoryColumns: { idx: number; category: string }[] = [
+        { idx: buildIndex, category: 'Build' },
+        { idx: learningIndex, category: 'Learning Day' },
+        { idx: preseasonIndex, category: 'Preseason' },
+        { idx: demoIndex, category: 'Demo' },
+      ];
+
+      let hasCategoryEntries = false;
+      for (const cat of categoryColumns) {
+        if (cat.idx !== -1 && cells[cat.idx]) {
+          const hrs = parseFloat(cells[cat.idx].replace(/[^\d.-]/g, '')) || 0;
+          const mins = Math.round(hrs * 60);
+          if (mins > 0) {
+            hasCategoryEntries = true;
+            const entryId = crypto.randomUUID();
+            await db.execute({
+              sql: `INSERT INTO attendance_entries (id, member_id, member_name, date, time_in, time_out, duration_minutes, status, note)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?)`,
+              args: [entryId, cleanId, cleanName, todayStr, nowIso, nowIso, mins, `${cat.category} session`],
+            });
+            entriesAdded++;
+          }
+        }
       }
 
-      if (durationMinutes > 0) {
-        const entryDate = dateIndex !== -1 && cells[dateIndex] ? cells[dateIndex].trim() : todayStr;
-        const note = noteIndex !== -1 && cells[noteIndex] ? cells[noteIndex].trim() : 'CSV Import';
-        const entryId = crypto.randomUUID();
+      // Check if row has hours or minutes to add (generic fallback)
+      if (!hasCategoryEntries) {
+        let durationMinutes = 0;
+        if (minutesIndex !== -1 && cells[minutesIndex]) {
+          durationMinutes = parseInt(cells[minutesIndex].replace(/[^\d.-]/g, ''), 10) || 0;
+        } else if (hoursIndex !== -1 && cells[hoursIndex]) {
+          const hrs = parseFloat(cells[hoursIndex].replace(/[^\d.-]/g, '')) || 0;
+          durationMinutes = Math.round(hrs * 60);
+        }
 
-        await db.execute({
-          sql: `INSERT INTO attendance_entries (id, member_id, member_name, date, time_in, time_out, duration_minutes, status, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?)`,
-          args: [entryId, cleanId, cleanName, entryDate, nowIso, nowIso, durationMinutes, note],
-        });
-        entriesAdded++;
+        if (durationMinutes > 0) {
+          const entryDate = dateIndex !== -1 && cells[dateIndex] ? cells[dateIndex].trim() : todayStr;
+          const note = noteIndex !== -1 && cells[noteIndex] ? cells[noteIndex].trim() : 'Build session';
+          const entryId = crypto.randomUUID();
+
+          await db.execute({
+            sql: `INSERT INTO attendance_entries (id, member_id, member_name, date, time_in, time_out, duration_minutes, status, note)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?)`,
+            args: [entryId, cleanId, cleanName, entryDate, nowIso, nowIso, durationMinutes, note],
+          });
+          entriesAdded++;
+        }
       }
     }
 
