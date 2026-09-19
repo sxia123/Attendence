@@ -10,11 +10,8 @@ import {
   RotateCcw,
   LogOut,
   FileEdit,
-  Clock,
   Users,
-  Eye,
-  EyeOff,
-  Lock,
+  CalendarCheck,
 } from 'lucide-react';
 
 interface HoursLeaderboardProps {
@@ -22,7 +19,7 @@ interface HoursLeaderboardProps {
   onGoToEditor?: () => void;
 }
 
-type SortField = 'rank' | 'name' | 'id' | 'status' | 'sessions' | 'totalMinutes' | 'avgMinutes';
+type SortField = 'rank' | 'name' | 'id' | 'status' | 'sessions';
 type SortOrder = 'asc' | 'desc';
 
 export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
@@ -31,9 +28,6 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
 }) => {
   const [students, setStudents] = useState<Student[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-
-  // Hours Concealment State (default: concealed per request)
-  const [isHoursConcealed, setIsHoursConcealed] = useState<boolean>(true);
 
   // Column Filters
   const [filterRank, setFilterRank] = useState<'top5' | 'top3' | 'all'>('top5');
@@ -72,10 +66,6 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
     return list.map((student, idx) => ({
       ...student,
       baseRank: idx + 1,
-      avgMinutes:
-        student.sessionsCount && student.sessionsCount > 0
-          ? Math.round(student.totalMinutes / student.sessionsCount)
-          : student.totalMinutes,
     }));
   }, [students]);
 
@@ -83,11 +73,6 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
   const top5Students = useMemo(() => {
     return rankedBase.slice(0, 5);
   }, [rankedBase]);
-
-  // Overall Statistics
-  const totalTeamMinutes = useMemo(() => {
-    return students.reduce((acc, s) => acc + s.totalMinutes, 0);
-  }, [students]);
 
   const activeCount = useMemo(() => {
     return students.filter((s) => s.isClockedIn).length;
@@ -99,15 +84,12 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
       setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortField(field);
-      setSortOrder(
-        field === 'totalMinutes' || field === 'sessions' || field === 'avgMinutes' ? 'desc' : 'asc'
-      );
+      setSortOrder(field === 'sessions' ? 'desc' : 'asc');
     }
   };
 
   // Filter & Sort Logic for Leaderboard Table
   const filteredAndSorted = useMemo(() => {
-    // Start with the ranked list
     let source = rankedBase;
     if (filterRank === 'top5') {
       source = rankedBase.slice(0, 5);
@@ -166,14 +148,6 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
           case 'sessions':
             valA = a.sessionsCount || 0;
             valB = b.sessionsCount || 0;
-            break;
-          case 'totalMinutes':
-            valA = a.totalMinutes;
-            valB = b.totalMinutes;
-            break;
-          case 'avgMinutes':
-            valA = a.avgMinutes;
-            valB = b.avgMinutes;
             break;
         }
 
@@ -246,43 +220,17 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
           </a>
         </div>
 
-        {/* Right Toolbar Controls: Hours Concealment Toggle & Reset Filters */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Conceal / Reveal Hours Button */}
+        {/* Reset Filters Button */}
+        {hasActiveFilters && (
           <button
             type="button"
-            onClick={() => setIsHoursConcealed((prev) => !prev)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-              isHoursConcealed
-                ? 'border-amber-700/60 bg-amber-950/40 text-amber-300 hover:bg-amber-900/50'
-                : 'border-zinc-700 bg-zinc-800 text-zinc-300 hover:text-white'
-            }`}
-            title="Toggle hours privacy concealment"
+            onClick={clearAllFilters}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/40 border border-rose-800 text-rose-300 hover:bg-rose-900/50 text-xs transition-colors"
           >
-            {isHoursConcealed ? (
-              <>
-                <EyeOff className="w-3.5 h-3.5 text-amber-400" />
-                <span>Hours Concealed</span>
-              </>
-            ) : (
-              <>
-                <Eye className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Hours Visible</span>
-              </>
-            )}
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset Filters</span>
           </button>
-
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={clearAllFilters}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/40 border border-rose-800 text-rose-300 hover:bg-rose-900/50 text-xs transition-colors"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset Filters</span>
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Top Header Banner */}
@@ -290,16 +238,10 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <Trophy className="w-6 h-6 text-amber-400" />
-            <h1 className="text-2xl font-bold text-white tracking-wide">Top 5 Hours Leaderboard</h1>
-            {isHoursConcealed && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800 text-amber-300 text-[10px] font-semibold">
-                <Lock className="w-3 h-3" />
-                Hours Concealed
-              </span>
-            )}
+            <h1 className="text-2xl font-bold text-white tracking-wide">Top 5 Leaderboard</h1>
           </div>
           <p className="text-xs text-zinc-400 mt-1">
-            Displaying the top 5 student rankings with accumulated hours concealed.
+            Displaying the top 5 student rankings by attendance activity.
           </p>
         </div>
 
@@ -310,8 +252,8 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
             <span>Present: <strong className="text-white">{activeCount}</strong> / {students.length}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <Clock className="w-4 h-4 text-cyan-400" />
-            <span>Team Hours: <strong className="text-white">{isHoursConcealed ? '•••• hrs' : `${(totalTeamMinutes / 60).toFixed(1)} hrs`}</strong></span>
+            <CalendarCheck className="w-4 h-4 text-cyan-400" />
+            <span>Top Students: <strong className="text-white">5</strong></span>
           </div>
         </div>
       </div>
@@ -377,20 +319,12 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
                 <div className="text-xs text-zinc-400">ID: {student.id}</div>
               </div>
 
-              {/* Concealed Hours Footer */}
-              <div className="mt-4 pt-3 border-t border-[#27272a] flex justify-between items-end">
-                <span className="text-[11px] text-zinc-500">{student.sessionsCount || 0} sessions</span>
-                <div className="text-right">
-                  {isHoursConcealed ? (
-                    <span className="text-sm font-bold text-zinc-400 tracking-widest bg-zinc-900/80 px-2 py-0.5 rounded border border-zinc-800">
-                      •••• hrs
-                    </span>
-                  ) : (
-                    <span className="text-sm font-bold text-white">
-                      {(student.totalMinutes / 60).toFixed(1)} hrs
-                    </span>
-                  )}
-                </div>
+              {/* Sessions Footer */}
+              <div className="mt-4 pt-3 border-t border-[#27272a] flex justify-between items-center text-xs">
+                <span className="text-zinc-500">Sessions</span>
+                <span className="font-bold text-white bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
+                  {student.sessionsCount || 0}
+                </span>
               </div>
             </div>
           );
@@ -410,26 +344,18 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
-            {isHoursConcealed && (
-              <span className="text-amber-400/90 text-[11px] flex items-center gap-1">
-                <Lock className="w-3 h-3" />
-                Hours Concealed
-              </span>
-            )}
-            {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={clearAllFilters}
-                className="text-zinc-400 hover:text-white underline text-[11px]"
-              >
-                Reset table filters
-              </button>
-            )}
-          </div>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="text-zinc-400 hover:text-white underline text-[11px]"
+            >
+              Reset table filters
+            </button>
+          )}
         </div>
 
-        {/* The Main Table with Per-Column Headers and Per-Column Filters */}
+        {/* The Main Table with Per-Column Headers and Per-Column Filters (No hours columns) */}
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
@@ -460,10 +386,10 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
                 {/* 3. Student ID */}
                 <th
                   onClick={() => handleSort('id')}
-                  className="py-3 px-4 w-28 cursor-pointer hover:text-white transition-colors"
+                  className="py-3 px-4 w-32 cursor-pointer hover:text-white transition-colors"
                 >
                   <div className="flex items-center gap-1">
-                    <span>ID</span>
+                    <span>Student ID</span>
                     {renderSortIcon('id')}
                   </div>
                 </th>
@@ -471,7 +397,7 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
                 {/* 4. Status */}
                 <th
                   onClick={() => handleSort('status')}
-                  className="py-3 px-4 w-28 cursor-pointer hover:text-white transition-colors"
+                  className="py-3 px-4 w-36 cursor-pointer hover:text-white transition-colors"
                 >
                   <div className="flex items-center gap-1">
                     <span>Status</span>
@@ -482,27 +408,11 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
                 {/* 5. Sessions Count */}
                 <th
                   onClick={() => handleSort('sessions')}
-                  className="py-3 px-4 w-28 cursor-pointer hover:text-white transition-colors text-right"
+                  className="py-3 px-4 w-36 cursor-pointer hover:text-white transition-colors text-right"
                 >
                   <div className="flex items-center justify-end gap-1">
-                    <span>Sessions</span>
+                    <span>Sessions Attended</span>
                     {renderSortIcon('sessions')}
-                  </div>
-                </th>
-
-                {/* 6. Total Hours (Concealed) */}
-                <th className="py-3 px-4 w-36 text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <span>Total Hours</span>
-                    {isHoursConcealed && <Lock className="w-3 h-3 text-amber-400" />}
-                  </div>
-                </th>
-
-                {/* 7. Avg Hours (Concealed) */}
-                <th className="py-3 px-4 w-32 text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <span>Avg/Session</span>
-                    {isHoursConcealed && <Lock className="w-3 h-3 text-amber-400" />}
                   </div>
                 </th>
               </tr>
@@ -595,16 +505,6 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
                     <option value="gte_5">≥ 5 Sessions</option>
                   </select>
                 </th>
-
-                {/* 6. Hours Column Header (Concealed Note) */}
-                <th className="py-2 px-3 text-right text-zinc-500 text-[10px]">
-                  {isHoursConcealed ? '🔒 Concealed' : 'Visible'}
-                </th>
-
-                {/* 7. Avg Hours Column Header (Concealed Note) */}
-                <th className="py-2 px-3 text-right text-zinc-500 text-[10px]">
-                  {isHoursConcealed ? '🔒 Concealed' : 'Visible'}
-                </th>
               </tr>
             </thead>
 
@@ -612,13 +512,13 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
             <tbody className="divide-y divide-[#27272a] text-zinc-300">
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-zinc-500">
+                  <td colSpan={5} className="py-12 text-center text-zinc-500">
                     Loading top 5 student rankings...
                   </td>
                 </tr>
               ) : filteredAndSorted.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-zinc-500">
+                  <td colSpan={5} className="py-12 text-center text-zinc-500">
                     <div>No students match your filter criteria.</div>
                     <button
                       type="button"
@@ -631,10 +531,6 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
                 </tr>
               ) : (
                 filteredAndSorted.map((student) => {
-                  const hrs = (student.totalMinutes / 60).toFixed(1);
-                  const avgHrs = (student.avgMinutes / 60).toFixed(1);
-
-                  // Badges for ranks
                   const rankBadge =
                     student.baseRank === 1 ? (
                       <span className="inline-flex items-center gap-1 font-bold text-amber-300">
@@ -700,29 +596,9 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = ({
                         )}
                       </td>
 
-                      {/* Sessions */}
-                      <td className="py-3 px-4 text-right text-zinc-300">
+                      {/* Sessions Attended */}
+                      <td className="py-3 px-4 text-right font-bold text-white">
                         {student.sessionsCount || 0}
-                      </td>
-
-                      {/* Total Hours (Concealed) */}
-                      <td className="py-3 px-4 text-right font-bold text-sm">
-                        {isHoursConcealed ? (
-                          <span className="text-zinc-400 tracking-widest bg-zinc-900/80 px-2 py-0.5 rounded border border-zinc-800">
-                            •••• hrs
-                          </span>
-                        ) : (
-                          <span className="text-white">{hrs} hrs</span>
-                        )}
-                      </td>
-
-                      {/* Avg Hours / Session (Concealed) */}
-                      <td className="py-3 px-4 text-right text-zinc-400">
-                        {isHoursConcealed ? (
-                          <span className="text-zinc-500 tracking-widest">••••</span>
-                        ) : (
-                          <span>{avgHrs} hrs</span>
-                        )}
                       </td>
                     </tr>
                   );
