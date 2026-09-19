@@ -178,14 +178,14 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) =>
       setStudentId('');
       onPunchSuccess?.();
 
-      // Auto close after 1.0 second (flash confirmation)
+      // Auto close after 0.1 seconds (100ms flash confirmation)
       if (autoCloseTimerRef.current) {
         clearTimeout(autoCloseTimerRef.current);
       }
       autoCloseTimerRef.current = setTimeout(() => {
         setSignalModal(null);
         inputRef.current?.focus();
-      }, 1000);
+      }, 100);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'An error occurred.');
       setStudentId('');
@@ -582,9 +582,10 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) =>
       {signalModal && (
         <div
           onClick={closeSignalModalNow}
-          className={`fixed inset-0 z-50 flex flex-col items-center justify-center p-6 text-white text-center cursor-pointer transition-all duration-150 animate-in fade-in zoom-in-95 ${
+          className={`fixed inset-0 z-50 flex flex-col items-center justify-center p-6 text-white text-center cursor-pointer transition-all duration-100 animate-in fade-in zoom-in-95 ${
             signalModal.type === 'in' ? 'bg-[#059669]' : 'bg-[#e11d48]'
           }`}
+          style={{ animationDuration: '0.1s', transitionDuration: '0.1s' }}
         >
           <div className="max-w-xl w-full flex flex-col items-center space-y-6">
             <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center shadow-2xl border-4 border-white/40">
