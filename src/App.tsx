@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Sidebar, AppView } from './components/Sidebar';
 import { StudentKiosk } from './components/StudentKiosk';
+import { HoursLeaderboard } from './components/HoursLeaderboard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { HoursEditor } from './components/HoursEditor';
 import { AdminPasswordModal } from './components/AdminPasswordModal';
@@ -48,10 +49,18 @@ export const App: React.FC = () => {
         <main className="flex-1 flex flex-col justify-start overflow-y-auto">
           {currentView === 'signin' ? (
             <StudentKiosk />
+          ) : currentView === 'leaderboard' ? (
+            <HoursLeaderboard
+              onExit={() => setCurrentView('signin')}
+              onGoToEditor={() => setCurrentView('hours')}
+            />
           ) : currentView === 'reports' ? (
             <AdminDashboard />
           ) : (
-            <HoursEditor onExit={() => setCurrentView('signin')} />
+            <HoursEditor
+              onExit={() => setCurrentView('signin')}
+              onGoToLeaderboard={() => setCurrentView('leaderboard')}
+            />
           )}
         </main>
 
@@ -84,7 +93,13 @@ export const App: React.FC = () => {
       {/* Admin Password Modal - appears whenever an admin tab is clicked */}
       {pendingAdminView && (
         <AdminPasswordModal
-          targetTabName={pendingAdminView === 'reports' ? 'Activity & Reports' : 'Edit Hours'}
+          targetTabName={
+            pendingAdminView === 'leaderboard'
+              ? 'Hours Leaderboard'
+              : pendingAdminView === 'reports'
+              ? 'Activity & Reports'
+              : 'Edit Hours'
+          }
           onSuccess={handleAdminSuccess}
           onCancel={handleAdminCancel}
         />

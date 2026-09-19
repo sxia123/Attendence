@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Student, AttendanceEntry } from '../types/attendance';
 import {
   LogOut,
@@ -8,10 +8,17 @@ import {
   Trash2,
   Edit3,
   Clock,
+  Search,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  RotateCcw,
+  Trophy,
 } from 'lucide-react';
 
 interface HoursEditorProps {
   onExit: () => void;
+  onGoToLeaderboard?: () => void;
 }
 
 interface ActiveEditSession {
@@ -24,11 +31,24 @@ interface ActiveEditSession {
   entryId?: string;
 }
 
-export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit }) => {
+export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderboard }) => {
   const [students, setStudents] = useState<Student[]>([]);
   const [entries, setEntries] = useState<AttendanceEntry[]>([]);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [activeSessionModal, setActiveSessionModal] = useState<ActiveEditSession | null>(null);
+
+  // Column Filters
+  const [filterName, setFilterName] = useState<string>('');
+  const [filterId, setFilterId] = useState<string>('');
+  const [filterToday, setFilterToday] = useState<'all' | 'has_hours' | 'active' | 'no_hours'>('all');
+  const [filterYesterday, setFilterYesterday] = useState<'all' | 'has_hours' | 'no_hours'>('all');
+  const [filterTotalHours, setFilterTotalHours] = useState<'all' | 'gt_0' | 'gte_5' | 'gte_10' | 'gte_20'>('all');
+
+  // Column Sort
+  type SortColumn = 'name' | 'id' | 'today' | 'yesterday' | 'total' | null;
+  type SortDirection = 'asc' | 'desc';
+  const [sortColumn, setSortColumn] = useState<SortColumn>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   // Modal states for toolbar buttons
   const [isAddStudentOpen, setIsAddStudentOpen] = useState<boolean>(false);
@@ -81,12 +101,143 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit }) => {
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayStr = yesterday.toISOString().slice(0, 10);
 
-  // Select all or individual
+  // Sorting helper
+  const handleSort = (col: SortColumn) => {
+    if (sortColumn === col) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortColumn(col);
+      setSortDirection(col === 'today' || col === 'yesterday' || col === 'total' ? 'desc' : 'asc');
+    }
+  };
+
+  const renderSortIcon = (col: SortColumn) => {
+    if (sortColumn !== col) {
+      return <ArrowUpDown className="w-3 h-3 text-zinc-600 inline ml-1 opacity-60 hover:opacity-100" />;
+    }
+    return sortDirection === 'asc' ? (
+      <ArrowUp className="w-3 h-3 text-cyan-400 inline ml-1" />
+    ) : (
+      <ArrowDown className="w-3 h-3 text-cyan-400 inline ml-1" />
+    );
+  };
+
+  // Filter & Sort Logic
+  const filteredAndSortedStudents = useMemo(() => {
+    return students
+      .filter((student) => {
+        // 1. Name filter
+        if (filterName.trim() && !student.name.toLowerCase().includes(filterName.trim().toLowerCase())) {
+          return false;
+        }
+        // 2. ID filter
+        if (filterId.trim() && !student.id.includes(filterId.trim())) {
+          return false;
+        }
+        // 3. Today filter
+        const todayEntry = entries.find((e) => e.studentId === student.id && e.date === todayStr);
+        if (filterToday === 'has_hours' && (!todayEntry || (todayEntry.durationMinutes || 0) <= 0)) {
+          return false;
+        }
+        if (filterToday === 'active' && todayEntry?.status !== 'active') {
+          return false;
+        }
+        if (filterToday === 'no_hours' && todayEntry && (todayEntry.durationMinutes || 0) > 0) {
+          return false;
+        }
+        // 4. Yesterday filter
+        const yestEntry = entries.find((e) => e.studentId === student.id && e.date === yesterdayStr);
+        if (filterYesterday === 'has_hours' && (!yestEntry || (yestEntry.durationMinutes || 0) <= 0)) {
+          return false;
+        }
+        if (filterYesterday === 'no_hours' && yestEntry && (yestEntry.durationMinutes || 0) > 0) {
+          return false;
+        }
+        // 5. Total Hours filter
+        const totalHrs = student.totalMinutes / 60;
+        if (filterTotalHours === 'gt_0' && totalHrs <= 0) {
+          return false;
+        }
+        if (filterTotalHours === 'gte_5' && totalHrs < 5) {
+          return false;
+        }
+        if (filterTotalHours === 'gte_10' && totalHrs < 10) {
+          return false;
+        }
+        if (filterTotalHours === 'gte_20' && totalHrs < 20) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (!sortColumn) return 0;
+        let valA: string | number = 0;
+        let valB: string | number = 0;
+
+        if (sortColumn === 'name') {
+          valA = a.name.toLowerCase();
+          valB = b.name.toLowerCase();
+        } else if (sortColumn === 'id') {
+          valA = a.id;
+          valB = b.id;
+        } else if (sortColumn === 'today') {
+          const eA = entries.find((e) => e.studentId === a.id && e.date === todayStr);
+          const eB = entries.find((e) => e.studentId === b.id && e.date === todayStr);
+          valA = eA?.durationMinutes || 0;
+          valB = eB?.durationMinutes || 0;
+        } else if (sortColumn === 'yesterday') {
+          const eA = entries.find((e) => e.studentId === a.id && e.date === yesterdayStr);
+          const eB = entries.find((e) => e.studentId === b.id && e.date === yesterdayStr);
+          valA = eA?.durationMinutes || 0;
+          valB = eB?.durationMinutes || 0;
+        } else if (sortColumn === 'total') {
+          valA = a.totalMinutes;
+          valB = b.totalMinutes;
+        }
+
+        if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+        if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+        return 0;
+      });
+  }, [
+    students,
+    entries,
+    filterName,
+    filterId,
+    filterToday,
+    filterYesterday,
+    filterTotalHours,
+    sortColumn,
+    sortDirection,
+    todayStr,
+    yesterdayStr,
+  ]);
+
+  const hasActiveFilters =
+    Boolean(filterName.trim()) ||
+    Boolean(filterId.trim()) ||
+    filterToday !== 'all' ||
+    filterYesterday !== 'all' ||
+    filterTotalHours !== 'all';
+
+  const clearAllFilters = () => {
+    setFilterName('');
+    setFilterId('');
+    setFilterToday('all');
+    setFilterYesterday('all');
+    setFilterTotalHours('all');
+    setSortColumn(null);
+  };
+
+  // Select all or individual based on filtered results
   const toggleSelectAll = (): void => {
-    if (selectedStudentIds.length === students.length) {
+    if (
+      selectedStudentIds.length === filteredAndSortedStudents.length &&
+      filteredAndSortedStudents.length > 0
+    ) {
       setSelectedStudentIds([]);
     } else {
-      setSelectedStudentIds(students.map((s) => s.id));
+      setSelectedStudentIds(filteredAndSortedStudents.map((s) => s.id));
     }
   };
 
@@ -244,6 +395,17 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit }) => {
           <span>← Back to Student Attendance</span>
         </button>
 
+        {onGoToLeaderboard && (
+          <button
+            type="button"
+            onClick={onGoToLeaderboard}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-800 bg-amber-950/40 text-amber-300 hover:bg-amber-900/60 font-mono text-xs transition-colors"
+          >
+            <Trophy className="w-3.5 h-3.5" />
+            <span>Hours Leaderboard</span>
+          </button>
+        )}
+
         <a
           href="/api/developer/export-csv"
           download
@@ -280,10 +442,46 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit }) => {
           <Trash2 className="w-3.5 h-3.5" />
           <span>Delete {selectedStudentIds.length} Students</span>
         </button>
+
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-800 bg-rose-950/40 text-rose-300 hover:bg-rose-900/60 font-mono text-xs transition-colors ml-auto"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset Filters</span>
+          </button>
+        )}
       </div>
 
-      {/* Main Spreadsheet Table Card (Matching sc-editor-censored.png) */}
+      {/* Main Spreadsheet Table Card */}
       <div className="flex-1 bg-[#1c1c1f] rounded-2xl border border-[#27272a] shadow-2xl overflow-hidden flex flex-col relative">
+        {/* Table Filter Status Header */}
+        <div className="px-4 py-2.5 border-b border-[#27272a] bg-[#151518] flex items-center justify-between text-xs text-zinc-400 font-mono">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-white">Attendance Editor Table</span>
+            <span>•</span>
+            <span>
+              Showing <strong className="text-white">{filteredAndSortedStudents.length}</strong> of{' '}
+              <strong className="text-white">{students.length}</strong> students
+            </span>
+          </div>
+
+          {hasActiveFilters && (
+            <div className="flex items-center gap-2">
+              <span className="text-amber-400 text-[11px]">Column filters active</span>
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="text-zinc-400 hover:text-white underline text-[11px]"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
+
         <div className="overflow-x-auto flex-1">
           <table className="w-full text-left border-collapse font-mono text-xs">
             <thead>
@@ -292,7 +490,10 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit }) => {
                 <th className="py-2 px-4 w-10">
                   <input
                     type="checkbox"
-                    checked={selectedStudentIds.length === students.length && students.length > 0}
+                    checked={
+                      selectedStudentIds.length === filteredAndSortedStudents.length &&
+                      filteredAndSortedStudents.length > 0
+                    }
                     onChange={toggleSelectAll}
                     className="accent-zinc-400 rounded"
                   />
@@ -308,26 +509,192 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit }) => {
                 </th>
               </tr>
 
-              {/* Sub Columns Row */}
+              {/* Sub Columns Row with Sorting Buttons */}
               <tr className="border-b border-[#27272a] bg-[#121214] text-zinc-400 font-normal">
                 <th className="py-2.5 px-4 w-10"></th>
-                <th className="py-2.5 px-4">Student Name</th>
-                <th className="py-2.5 px-4">ID</th>
-                <th className="py-2.5 px-4">Today ({todayStr.slice(5)})</th>
-                <th className="py-2.5 px-4">Yesterday ({yesterdayStr.slice(5)})</th>
-                <th className="py-2.5 px-4 text-right">Total Hours</th>
+                <th
+                  onClick={() => handleSort('name')}
+                  className="py-2.5 px-4 cursor-pointer hover:text-white transition-colors"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Student Name</span>
+                    {renderSortIcon('name')}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('id')}
+                  className="py-2.5 px-4 cursor-pointer hover:text-white transition-colors"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>ID</span>
+                    {renderSortIcon('id')}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('today')}
+                  className="py-2.5 px-4 cursor-pointer hover:text-white transition-colors"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Today ({todayStr.slice(5)})</span>
+                    {renderSortIcon('today')}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('yesterday')}
+                  className="py-2.5 px-4 cursor-pointer hover:text-white transition-colors"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Yesterday ({yesterdayStr.slice(5)})</span>
+                    {renderSortIcon('yesterday')}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('total')}
+                  className="py-2.5 px-4 text-right cursor-pointer hover:text-white transition-colors"
+                >
+                  <div className="flex items-center justify-end gap-1">
+                    <span>Total Hours</span>
+                    {renderSortIcon('total')}
+                  </div>
+                </th>
+              </tr>
+
+              {/* Row 3: Per-Column Filter Inputs & Dropdowns */}
+              <tr className="border-b border-[#27272a] bg-[#151518]/90">
+                <th className="py-2 px-4 w-10 text-center">
+                  {hasActiveFilters ? (
+                    <button
+                      type="button"
+                      onClick={clearAllFilters}
+                      title="Clear all filters"
+                      className="text-rose-400 hover:text-white text-[11px]"
+                    >
+                      ✕
+                    </button>
+                  ) : (
+                    <Search className="w-3 h-3 text-zinc-600 mx-auto" />
+                  )}
+                </th>
+
+                {/* 1. Name Filter */}
+                <th className="py-2 px-4">
+                  <div className="relative">
+                    <Search className="w-3 h-3 absolute left-2 top-2 text-zinc-500 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Filter name..."
+                      value={filterName}
+                      onChange={(e) => setFilterName(e.target.value)}
+                      className="w-full pl-6 pr-5 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-white focus:outline-none focus:border-zinc-500"
+                    />
+                    {filterName && (
+                      <button
+                        type="button"
+                        onClick={() => setFilterName('')}
+                        className="absolute right-1.5 top-1.5 text-zinc-500 hover:text-white text-xs"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                {/* 2. ID Filter */}
+                <th className="py-2 px-4">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Filter ID..."
+                      value={filterId}
+                      onChange={(e) => setFilterId(e.target.value)}
+                      className="w-full px-2 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-white focus:outline-none focus:border-zinc-500"
+                    />
+                    {filterId && (
+                      <button
+                        type="button"
+                        onClick={() => setFilterId('')}
+                        className="absolute right-1.5 top-1.5 text-zinc-500 hover:text-white text-xs"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </th>
+
+                {/* 3. Today Filter */}
+                <th className="py-2 px-4">
+                  <select
+                    value={filterToday}
+                    onChange={(e) =>
+                      setFilterToday(e.target.value as 'all' | 'has_hours' | 'active' | 'no_hours')
+                    }
+                    className="w-full px-2 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-zinc-300 focus:outline-none focus:border-zinc-500"
+                  >
+                    <option value="all">All</option>
+                    <option value="has_hours">Has Hours</option>
+                    <option value="active">Ongoing</option>
+                    <option value="no_hours">No Hours</option>
+                  </select>
+                </th>
+
+                {/* 4. Yesterday Filter */}
+                <th className="py-2 px-4">
+                  <select
+                    value={filterYesterday}
+                    onChange={(e) =>
+                      setFilterYesterday(e.target.value as 'all' | 'has_hours' | 'no_hours')
+                    }
+                    className="w-full px-2 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-zinc-300 focus:outline-none focus:border-zinc-500"
+                  >
+                    <option value="all">All</option>
+                    <option value="has_hours">Has Hours</option>
+                    <option value="no_hours">No Hours</option>
+                  </select>
+                </th>
+
+                {/* 5. Total Hours Filter */}
+                <th className="py-2 px-4 text-right">
+                  <select
+                    value={filterTotalHours}
+                    onChange={(e) =>
+                      setFilterTotalHours(
+                        e.target.value as 'all' | 'gt_0' | 'gte_5' | 'gte_10' | 'gte_20'
+                      )
+                    }
+                    className="w-full px-2 py-1 text-[11px] bg-[#121214] border border-[#27272a] rounded text-zinc-300 focus:outline-none focus:border-zinc-500"
+                  >
+                    <option value="all">All Hours</option>
+                    <option value="gt_0">&gt; 0 Hours</option>
+                    <option value="gte_5">≥ 5 Hours</option>
+                    <option value="gte_10">≥ 10 Hours</option>
+                    <option value="gte_20">≥ 20 Hours</option>
+                  </select>
+                </th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-[#27272a] text-zinc-300">
-              {students.length === 0 ? (
+              {filteredAndSortedStudents.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-zinc-500">
-                    No students found. Click &quot;Add Student&quot; above.
+                    {students.length === 0 ? (
+                      'No students found. Click "Add Student" above.'
+                    ) : (
+                      <div>
+                        <div>No students match the current column filters.</div>
+                        <button
+                          type="button"
+                          onClick={clearAllFilters}
+                          className="mt-2 text-cyan-400 hover:underline"
+                        >
+                          Reset all column filters
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ) : (
-                students.map((student) => {
+                filteredAndSortedStudents.map((student) => {
                   const todayEntry = entries.find(
                     (e) => e.studentId === student.id && e.date === todayStr
                   );

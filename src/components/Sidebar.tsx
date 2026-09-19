@@ -1,7 +1,7 @@
 import React from 'react';
-import { LayoutGrid, Clock, FileEdit, Radio } from 'lucide-react';
+import { LayoutGrid, Clock, FileEdit, Radio, Trophy } from 'lucide-react';
 
-export type AppView = 'signin' | 'reports' | 'hours';
+export type AppView = 'signin' | 'leaderboard' | 'reports' | 'hours';
 
 interface SidebarProps {
   currentView: AppView;
@@ -36,7 +36,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
           <Clock className="w-5 h-5" />
         </button>
 
-        {/* 2. Activity & Reports (LayoutGrid) */}
+        {/* 2. Hours Leaderboard (Trophy) */}
+        <button
+          type="button"
+          onClick={() => onViewChange('leaderboard')}
+          title="Hours Leaderboard (Admin password required)"
+          className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+            currentView === 'leaderboard'
+              ? 'bg-zinc-800 text-white shadow-md border border-zinc-700'
+              : 'text-zinc-400 hover:text-white hover:bg-zinc-850'
+          }`}
+        >
+          <Trophy className="w-5 h-5 text-amber-400" />
+        </button>
+
+        {/* 3. Activity & Reports (LayoutGrid) */}
         <button
           type="button"
           onClick={() => onViewChange('reports')}
@@ -50,7 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
           <LayoutGrid className="w-5 h-5" />
         </button>
 
-        {/* 3. Edit Hours (FileEdit) */}
+        {/* 4. Edit Hours (FileEdit) */}
         <button
           type="button"
           onClick={() => onViewChange('hours')}
