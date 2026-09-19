@@ -31,9 +31,9 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = () => {
     void fetchStudents();
   }, [fetchStudents]);
 
-  // Ranked Top 5 Students strictly by total hours (highest to lowest)
+  // Ranked Top 5 Students strictly by Build Season hours (highest to lowest)
   const top5Students = useMemo(() => {
-    const list = [...students].sort((a, b) => b.totalMinutes - a.totalMinutes);
+    const list = [...students].sort((a, b) => (b.buildMinutes || 0) - (a.buildMinutes || 0));
     return list.slice(0, 5).map((student, idx) => ({
       ...student,
       rank: idx + 1,
@@ -84,7 +84,7 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = () => {
           Leaderboard
         </h1>
         <p className="text-xs text-zinc-400 mt-2">
-          Top 5 members
+          Top 5 members based on Build Season hours
         </p>
       </div>
 

@@ -123,10 +123,10 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
   // Helper to categorize attendance entry
   const getEntryCategory = useCallback((entry: AttendanceEntry): HourCategory => {
     const text = (entry.note || '').toLowerCase();
-    if (text.includes('learning')) return 'Learning Day';
-    if (text.includes('preseason') || text.includes('offseason')) return 'Preseason';
+    if (text.includes('learning')) return 'Learning Days';
+    if (text.includes('pre') || text.includes('offseason')) return 'Pre-Season';
     if (text.includes('demo') || text.includes('outreach') || text.includes('event')) return 'Demo';
-    return 'Build';
+    return 'Build Season';
   }, []);
 
   // Precompute minutes per student per category
@@ -143,9 +143,9 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
         const item = map.get(e.studentId);
         if (item) {
           const cat = getEntryCategory(e);
-          if (cat === 'Build') item.build += e.durationMinutes;
-          else if (cat === 'Learning Day') item.learning += e.durationMinutes;
-          else if (cat === 'Preseason') item.preseason += e.durationMinutes;
+          if (cat === 'Build Season') item.build += e.durationMinutes;
+          else if (cat === 'Learning Days') item.learning += e.durationMinutes;
+          else if (cat === 'Pre-Season') item.preseason += e.durationMinutes;
           else if (cat === 'Demo') item.demo += e.durationMinutes;
         }
       }
@@ -385,7 +385,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
   };
 
   // Open Edit Session Modal
-  const openEditSession = (student: Student, category: HourCategory = 'Build'): void => {
+  const openEditSession = (student: Student, category: HourCategory = 'Build Season'): void => {
     const existing = entries.find(
       (e) => e.studentId === student.id && getEntryCategory(e) === category
     );
@@ -732,7 +732,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                   className="py-2.5 px-4 cursor-pointer hover:text-white transition-colors"
                 >
                   <div className="flex items-center gap-1">
-                    <span>Build Hours</span>
+                    <span>Build Season Hours</span>
                     {renderSortIcon('build')}
                   </div>
                 </th>
@@ -741,7 +741,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                   className="py-2.5 px-4 cursor-pointer hover:text-white transition-colors"
                 >
                   <div className="flex items-center gap-1">
-                    <span>Learning Day Hours</span>
+                    <span>Learning Days Hours</span>
                     {renderSortIcon('learning')}
                   </div>
                 </th>
@@ -750,7 +750,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                   className="py-2.5 px-4 cursor-pointer hover:text-white transition-colors"
                 >
                   <div className="flex items-center gap-1">
-                    <span>Preseason Hours</span>
+                    <span>Pre-Season Hours</span>
                     {renderSortIcon('preseason')}
                   </div>
                 </th>
@@ -991,7 +991,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                           </span>
                           <button
                             type="button"
-                            onClick={() => openEditSession(student, 'Build')}
+                            onClick={() => openEditSession(student, 'Build Season')}
                             className="p-1 text-zinc-600 hover:text-cyan-400 rounded hover:bg-zinc-800 transition-colors"
                             title="Edit Build Hours"
                           >
@@ -1008,7 +1008,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                           </span>
                           <button
                             type="button"
-                            onClick={() => openEditSession(student, 'Learning Day')}
+                            onClick={() => openEditSession(student, 'Learning Days')}
                             className="p-1 text-zinc-600 hover:text-cyan-400 rounded hover:bg-zinc-800 transition-colors"
                             title="Edit Learning Day Hours"
                           >
@@ -1025,7 +1025,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                           </span>
                           <button
                             type="button"
-                            onClick={() => openEditSession(student, 'Preseason')}
+                            onClick={() => openEditSession(student, 'Pre-Season')}
                             className="p-1 text-zinc-600 hover:text-cyan-400 rounded hover:bg-zinc-800 transition-colors"
                             title="Edit Preseason Hours"
                           >
@@ -1101,7 +1101,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                 Hour Type
               </label>
               <div className="grid grid-cols-4 gap-1 bg-[#121214] p-1 rounded-xl border border-[#27272a] text-xs">
-                {(['Build', 'Learning Day', 'Preseason', 'Demo'] as const).map((type) => (
+                {(['Build Season', 'Learning Days', 'Pre-Season', 'Demo'] as const).map((type) => (
                   <button
                     key={type}
                     type="button"

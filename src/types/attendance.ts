@@ -1,4 +1,4 @@
-export type HourCategory = 'Build' | 'Learning Day' | 'Preseason' | 'Demo';
+export type HourCategory = 'Build Season' | 'Learning Days' | 'Pre-Season' | 'Demo';
 
 export interface Student {
   id: string; // 5 digits (e.g., "10101")
@@ -8,6 +8,10 @@ export interface Student {
   totalMinutes: number;
   totalHoursFormatted: string;
   sessionsCount?: number;
+  buildMinutes?: number;
+  learningMinutes?: number;
+  preseasonMinutes?: number;
+  demoMinutes?: number;
 }
 
 export interface AttendanceEntry {

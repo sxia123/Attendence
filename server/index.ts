@@ -199,9 +199,33 @@ app.get('/api/developer/students', async (_req: Request, res: Response): Promise
       });
     }
 
+    // 3. Category breakdown per student
+    const categoryTotals = await db.execute(`
+      SELECT member_id, duration_minutes, note
+      FROM attendance_entries
+      WHERE status = 'completed' AND duration_minutes IS NOT NULL
+    `);
+
+    const categoryMap = new Map<string, { buildMinutes: number; learningMinutes: number; preseasonMinutes: number; demoMinutes: number }>();
+    for (const r of categoryTotals.rows) {
+      const sId = String(r.member_id);
+      const mins = Number(r.duration_minutes || 0);
+      const note = String(r.note || '').toLowerCase();
+      let rec = categoryMap.get(sId);
+      if (!rec) {
+        rec = { buildMinutes: 0, learningMinutes: 0, preseasonMinutes: 0, demoMinutes: 0 };
+        categoryMap.set(sId, rec);
+      }
+      if (note.includes('learning')) rec.learningMinutes += mins;
+      else if (note.includes('pre') || note.includes('offseason')) rec.preseasonMinutes += mins;
+      else if (note.includes('demo') || note.includes('outreach') || note.includes('event')) rec.demoMinutes += mins;
+      else rec.buildMinutes += mins;
+    }
+
     const students = studentsResult.rows.map((row) => {
       const studentId = String(row.id);
       const studentTotal = totalsMap.get(studentId) || { totalMinutes: 0, sessionsCount: 0 };
+      const cats = categoryMap.get(studentId) || { buildMinutes: 0, learningMinutes: 0, preseasonMinutes: 0, demoMinutes: 0 };
       const mins = studentTotal.totalMinutes;
       const hours = Math.floor(mins / 60);
       const remMins = mins % 60;
@@ -215,6 +239,10 @@ app.get('/api/developer/students', async (_req: Request, res: Response): Promise
         totalMinutes: mins,
         totalHoursFormatted,
         sessionsCount: studentTotal.sessionsCount,
+        buildMinutes: cats.buildMinutes,
+        learningMinutes: cats.learningMinutes,
+        preseasonMinutes: cats.preseasonMinutes,
+        demoMinutes: cats.demoMinutes,
       };
     });
 
@@ -490,7 +518,7 @@ app.get('/api/developer/export-csv', async (_req: Request, res: Response): Promi
 
     // Summary section
     lines.push('=== TOTAL ACCUMULATED HOURS BY CATEGORY ===');
-    lines.push('Student Name,Student ID,Build Hours,Learning Day Hours,Preseason Hours,Demo Hours,Total Hours');
+    lines.push('Student Name,Student ID,Build Season Hours,Learning Days Hours,Pre-Season Hours,Demo Hours,Total Hours');
     for (const s of studentsResult.rows) {
       const sId = String(s.id);
       const c = studentCategories.get(sId) || { build: 0, learning: 0, preseason: 0, demo: 0, total: 0 };
@@ -623,13 +651,13 @@ app.post('/api/developer/import-csv', async (req: Request, res: Response): Promi
 
     // Specific category hour columns
     const buildIndex = normalizedHeaders.findIndex((h) =>
-      ['build', 'buildhours', 'buildseason'].includes(h)
+      ['build', 'buildhours', 'buildseason', 'buildseasonhours'].includes(h)
     );
     const learningIndex = normalizedHeaders.findIndex((h) =>
-      ['learning', 'learningday', 'learninghours', 'learningdayhours'].includes(h)
+      ['learning', 'learningday', 'learningdays', 'learninghours', 'learningdayhours', 'learningdayshours'].includes(h)
     );
     const preseasonIndex = normalizedHeaders.findIndex((h) =>
-      ['preseason', 'preseasonhours', 'offseason', 'offseasonhours'].includes(h)
+      ['preseason', 'preseasonhours', 'offseason', 'offseasonhours', 'pre-season', 'pre-seasonhours'].includes(h)
     );
     const demoIndex = normalizedHeaders.findIndex((h) =>
       ['demo', 'demohours', 'demos', 'outreach', 'outreachhours'].includes(h)
@@ -696,9 +724,9 @@ app.post('/api/developer/import-csv', async (req: Request, res: Response): Promi
 
       // Check if row has specific category columns
       const categoryColumns: { idx: number; category: string }[] = [
-        { idx: buildIndex, category: 'Build' },
-        { idx: learningIndex, category: 'Learning Day' },
-        { idx: preseasonIndex, category: 'Preseason' },
+        { idx: buildIndex, category: 'Build Season' },
+        { idx: learningIndex, category: 'Learning Days' },
+        { idx: preseasonIndex, category: 'Pre-Season' },
         { idx: demoIndex, category: 'Demo' },
       ];
 

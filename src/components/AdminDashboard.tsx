@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Student, AttendanceEntry, PunchResponse } from '../types/attendance';
+import { Student, AttendanceEntry, PunchResponse, HourCategory } from '../types/attendance';
 import {
   ChevronLeft,
   ChevronRight,
@@ -13,12 +13,21 @@ import {
   Search,
   LogIn,
   LogOut,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Wrench,
+  BookOpen,
+  Calendar,
+  Activity,
+  FileSpreadsheet,
+  Download,
 } from 'lucide-react';
 
 interface ActivityEvent {
   id: string;
   type: 'Signed In' | 'Signed Out' | 'Hours Adjusted';
-  category: string;
+  category: HourCategory;
   timestamp: string;
   studentName?: string;
   studentId?: string;
@@ -29,11 +38,25 @@ export const AdminDashboard: React.FC = () => {
   const [students, setStudents] = useState<Student[]>([]);
   const [entries, setEntries] = useState<AttendanceEntry[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
-  const [sessionCategory, setSessionCategory] = useState<'regular' | 'demo'>('regular');
-  const [filterType, setFilterType] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [pageSize, setPageSize] = useState<number>(15);
-  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [sessionCategory, setSessionCategory] = useState<HourCategory>('Build Season');
+
+  // Active view inside the reports card: 'hoursByCategory' or 'activityLog'
+  const [activeReportTab, setActiveReportTab] = useState<'hoursByCategory' | 'activityLog'>('hoursByCategory');
+
+  // Activity Log filters & search
+  const [activityFilter, setActivityFilter] = useState<string>('all');
+  const [activitySearch, setActivitySearch] = useState<string>('');
+  const [activityPageSize, setActivityPageSize] = useState<number>(15);
+  const [activityCurrentPage, setActivityCurrentPage] = useState<number>(1);
+
+  // Hours by Category table search, sort & pagination
+  const [hoursSearch, setHoursSearch] = useState<string>('');
+  type HoursSortKey = 'name' | 'id' | 'build' | 'learning' | 'preseason' | 'demo' | 'total';
+  const [hoursSortKey, setHoursSortKey] = useState<HoursSortKey>('total');
+  const [hoursSortOrder, setHoursSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [hoursPageSize, setHoursPageSize] = useState<number>(15);
+  const [hoursCurrentPage, setHoursCurrentPage] = useState<number>(1);
+
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   // Fetch Students
@@ -67,23 +90,27 @@ export const AdminDashboard: React.FC = () => {
     void fetchEntries();
   }, [fetchStudents, fetchEntries]);
 
+  // Helper to categorize attendance entry note
+  const getEntryCategory = useCallback((note?: string): HourCategory => {
+    const text = (note || '').toLowerCase();
+    if (text.includes('learning')) return 'Learning Days';
+    if (text.includes('pre') || text.includes('offseason')) return 'Pre-Season';
+    if (text.includes('demo') || text.includes('outreach') || text.includes('event')) return 'Demo';
+    return 'Build Season';
+  }, []);
+
   // Construct activity events from entries
   const activityEvents = useMemo<ActivityEvent[]>(() => {
     const list: ActivityEvent[] = [];
 
     entries.forEach((e) => {
-      const noteLower = (e.note || '').toLowerCase();
-      const isDemo =
-        noteLower.includes('demo') ||
-        noteLower.includes('outreach') ||
-        noteLower.includes('event');
-      const catLabel = isDemo ? 'Demo' : e.note || 'Regular Meeting';
+      const cat = getEntryCategory(e.note);
 
       // Clock in event
       list.push({
         id: `${e.id}-in`,
         type: 'Signed In',
-        category: catLabel,
+        category: cat,
         timestamp: e.timeIn,
         studentName: e.studentName,
         studentId: e.studentId,
@@ -99,7 +126,7 @@ export const AdminDashboard: React.FC = () => {
         list.push({
           id: `${e.id}-out`,
           type: 'Signed Out',
-          category: catLabel,
+          category: cat,
           timestamp: e.timeOut,
           studentName: e.studentName,
           studentId: e.studentId,
@@ -107,11 +134,11 @@ export const AdminDashboard: React.FC = () => {
         });
       }
 
-      if (e.note && (noteLower.includes('adjust') || noteLower.includes('manual'))) {
+      if (e.note && (e.note.toLowerCase().includes('adjust') || e.note.toLowerCase().includes('manual'))) {
         list.push({
           id: `${e.id}-adj`,
           type: 'Hours Adjusted',
-          category: 'Adjustment',
+          category: cat,
           timestamp: e.timeIn,
           studentName: e.studentName,
           studentId: e.studentId,
@@ -121,7 +148,7 @@ export const AdminDashboard: React.FC = () => {
     });
 
     return list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [entries]);
+  }, [entries, getEntryCategory]);
 
   // Quick Sign In / Sign Out from Dashboard
   const handleQuickAction = async (targetId: string, actionType: 'in' | 'out'): Promise<void> => {
@@ -145,7 +172,7 @@ export const AdminDashboard: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: targetId,
-          category: sessionCategory === 'demo' ? 'Demo' : 'Build',
+          category: sessionCategory,
         }),
       });
 
@@ -153,7 +180,7 @@ export const AdminDashboard: React.FC = () => {
         const data = (await res.json()) as PunchResponse;
         setActionSuccess(
           data.action === 'clock_in'
-            ? `Signed in ${data.student.name} (${sessionCategory === 'demo' ? 'Demo' : 'Regular Meeting'})`
+            ? `Signed in ${data.student.name} (${sessionCategory})`
             : `Signed out ${data.student.name} (${data.durationFormatted || 'recorded'})`
         );
         void fetchStudents();
@@ -164,18 +191,21 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  // Filtered activity
+  // Filtered Activity Events
   const filteredEvents = useMemo(() => {
     return activityEvents.filter((ev) => {
-      // Filter by type pill
-      if (filterType === 'signed in' && ev.type !== 'Signed In') return false;
-      if (filterType === 'signed out' && ev.type !== 'Signed Out') return false;
-      if (filterType === 'adjusted' && ev.type !== 'Hours Adjusted') return false;
-      if (filterType === 'demo' && !ev.category.toLowerCase().includes('demo')) return false;
+      // Filter by type or category
+      if (activityFilter === 'signed in' && ev.type !== 'Signed In') return false;
+      if (activityFilter === 'signed out' && ev.type !== 'Signed Out') return false;
+      if (activityFilter === 'adjusted' && ev.type !== 'Hours Adjusted') return false;
+      if (activityFilter === 'build' && ev.category !== 'Build Season') return false;
+      if (activityFilter === 'learning' && ev.category !== 'Learning Days') return false;
+      if (activityFilter === 'preseason' && ev.category !== 'Pre-Season') return false;
+      if (activityFilter === 'demo' && ev.category !== 'Demo') return false;
 
       // Filter by search query
-      if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase();
+      if (activitySearch.trim()) {
+        const q = activitySearch.trim().toLowerCase();
         const matchName = ev.studentName?.toLowerCase().includes(q);
         const matchId = ev.studentId?.includes(q);
         if (!matchName && !matchId) return false;
@@ -183,16 +213,102 @@ export const AdminDashboard: React.FC = () => {
 
       return true;
     });
-  }, [activityEvents, filterType, searchQuery]);
+  }, [activityEvents, activityFilter, activitySearch]);
 
-  // Pagination calculation
-  const totalPages = Math.max(1, Math.ceil(filteredEvents.length / pageSize));
+  const activityTotalPages = Math.max(1, Math.ceil(filteredEvents.length / activityPageSize));
   const paginatedEvents = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredEvents.slice(start, start + pageSize);
-  }, [filteredEvents, currentPage, pageSize]);
+    const start = (activityCurrentPage - 1) * activityPageSize;
+    return filteredEvents.slice(start, start + activityPageSize);
+  }, [filteredEvents, activityCurrentPage, activityPageSize]);
 
-  // Attendance metrics
+  // Hours by Category: Filtered, Sorted, and Paginated Students
+  const filteredAndSortedStudents = useMemo(() => {
+    let result = [...students];
+
+    // Search filter
+    if (hoursSearch.trim()) {
+      const q = hoursSearch.trim().toLowerCase();
+      result = result.filter(
+        (s) => s.name.toLowerCase().includes(q) || s.id.includes(q)
+      );
+    }
+
+    // Sort
+    result.sort((a, b) => {
+      let valA: number | string = 0;
+      let valB: number | string = 0;
+
+      switch (hoursSortKey) {
+        case 'name':
+          valA = a.name.toLowerCase();
+          valB = b.name.toLowerCase();
+          break;
+        case 'id':
+          valA = a.id;
+          valB = b.id;
+          break;
+        case 'build':
+          valA = a.buildMinutes || 0;
+          valB = b.buildMinutes || 0;
+          break;
+        case 'learning':
+          valA = a.learningMinutes || 0;
+          valB = b.learningMinutes || 0;
+          break;
+        case 'preseason':
+          valA = a.preseasonMinutes || 0;
+          valB = b.preseasonMinutes || 0;
+          break;
+        case 'demo':
+          valA = a.demoMinutes || 0;
+          valB = b.demoMinutes || 0;
+          break;
+        case 'total':
+        default:
+          valA = a.totalMinutes || 0;
+          valB = b.totalMinutes || 0;
+          break;
+      }
+
+      if (typeof valA === 'string' && typeof valB === 'string') {
+        const cmp = valA.localeCompare(valB);
+        return hoursSortOrder === 'asc' ? cmp : -cmp;
+      }
+      return hoursSortOrder === 'asc'
+        ? (valA as number) - (valB as number)
+        : (valB as number) - (valA as number);
+    });
+
+    return result;
+  }, [students, hoursSearch, hoursSortKey, hoursSortOrder]);
+
+  const hoursTotalPages = Math.max(1, Math.ceil(filteredAndSortedStudents.length / hoursPageSize));
+  const paginatedStudents = useMemo(() => {
+    const start = (hoursCurrentPage - 1) * hoursPageSize;
+    return filteredAndSortedStudents.slice(start, start + hoursPageSize);
+  }, [filteredAndSortedStudents, hoursCurrentPage, hoursPageSize]);
+
+  const handleHoursSort = (key: HoursSortKey): void => {
+    if (hoursSortKey === key) {
+      setHoursSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setHoursSortKey(key);
+      setHoursSortOrder(key === 'name' || key === 'id' ? 'asc' : 'desc');
+    }
+  };
+
+  const renderSortArrow = (key: HoursSortKey) => {
+    if (hoursSortKey !== key) {
+      return <ArrowUpDown className="w-3 h-3 text-zinc-500 opacity-60" />;
+    }
+    return hoursSortOrder === 'asc' ? (
+      <ArrowUp className="w-3 h-3 text-cyan-400" />
+    ) : (
+      <ArrowDown className="w-3 h-3 text-cyan-400" />
+    );
+  };
+
+  // Metrics
   const currentlyPresentStudents = students.filter((s) => s.isClockedIn);
   const presentCount = currentlyPresentStudents.length;
   const absentCount = Math.max(0, students.length - presentCount);
@@ -200,19 +316,39 @@ export const AdminDashboard: React.FC = () => {
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const todaySessionsCount = entries.filter((e) => e.date === todayStr).length;
+
   const totalTeamHours = (
     students.reduce((sum, s) => sum + (s.totalMinutes || 0), 0) / 60
+  ).toFixed(1);
+  const totalBuildHours = (
+    students.reduce((sum, s) => sum + (s.buildMinutes || 0), 0) / 60
+  ).toFixed(1);
+  const totalLearningHours = (
+    students.reduce((sum, s) => sum + (s.learningMinutes || 0), 0) / 60
+  ).toFixed(1);
+  const totalPreseasonHours = (
+    students.reduce((sum, s) => sum + (s.preseasonMinutes || 0), 0) / 60
+  ).toFixed(1);
+  const totalDemoHours = (
+    students.reduce((sum, s) => sum + (s.demoMinutes || 0), 0) / 60
   ).toFixed(1);
 
   const selectedStudent = students.find((s) => s.id === selectedStudentId);
 
-  const filterButtons = [
+  const activityFilterButtons = [
     { label: 'All Activity', key: 'all' },
+    { label: 'Build Season', key: 'build' },
+    { label: 'Learning Days', key: 'learning' },
+    { label: 'Pre-Season', key: 'preseason' },
+    { label: 'Demos', key: 'demo' },
     { label: 'Signed In', key: 'signed in' },
     { label: 'Signed Out', key: 'signed out' },
-    { label: 'Demos', key: 'demo' },
-    { label: 'Hours Adjusted', key: 'adjusted' },
+    { label: 'Adjusted', key: 'adjusted' },
   ];
+
+  const formatMinutesToHours = (mins?: number): string => {
+    return `${((mins || 0) / 60).toFixed(1)} hrs`;
+  };
 
   const formatEventTime = (iso: string): string => {
     try {
@@ -233,16 +369,62 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
+  const renderCategoryBadge = (cat: HourCategory) => {
+    switch (cat) {
+      case 'Demo':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-950/50 border border-amber-800/80 text-amber-300">
+            <Sparkles className="w-3 h-3 text-amber-400" />
+            Demo
+          </span>
+        );
+      case 'Learning Days':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-blue-950/50 border border-blue-800/80 text-blue-300">
+            <BookOpen className="w-3 h-3 text-blue-400" />
+            Learning Days
+          </span>
+        );
+      case 'Pre-Season':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-purple-950/50 border border-purple-800/80 text-purple-300">
+            <Calendar className="w-3 h-3 text-purple-400" />
+            Pre-Season
+          </span>
+        );
+      case 'Build Season':
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-950/50 border border-emerald-800/80 text-emerald-300">
+            <Wrench className="w-3 h-3 text-emerald-400" />
+            Build Season
+          </span>
+        );
+    }
+  };
+
   return (
     <div className="flex-1 p-6 max-w-7xl mx-auto w-full select-none text-zinc-100 font-mono space-y-6">
       {/* Page Title & Subtitle */}
-      <div>
-        <h1 className="text-2xl font-bold text-white tracking-wide">
-          Activity &amp; Reports
-        </h1>
-        <p className="text-xs text-zinc-400 mt-1 font-sans">
-          Real-time workshop attendance tracking and team check-in history.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white tracking-wide">
+            Activity &amp; Reports
+          </h1>
+          <p className="text-xs text-zinc-400 mt-1 font-sans">
+            Workshop attendance tracking and hours breakdown by category.
+          </p>
+        </div>
+
+        {/* CSV Export Button */}
+        <a
+          href="/api/developer/export-csv"
+          download
+          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#1c1c1f] hover:bg-zinc-800 border border-[#27272a] text-xs text-zinc-300 hover:text-white transition-colors self-start sm:self-auto shadow-sm"
+        >
+          <Download className="w-4 h-4 text-cyan-400" />
+          <span>Export Summary CSV</span>
+        </a>
       </div>
 
       {/* Top 4 KPI Summary Cards */}
@@ -277,7 +459,7 @@ export const AdminDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* KPI 3: Total Accumulated Hours */}
+        {/* KPI 3: Total Accumulated Hours with category badges */}
         <div className="bg-[#1c1c1f] rounded-2xl border border-[#27272a] p-4 shadow-lg flex items-center justify-between">
           <div>
             <div className="text-[11px] text-zinc-400 uppercase tracking-wider font-semibold">
@@ -308,6 +490,35 @@ export const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* Category Totals Banner */}
+      <div className="bg-[#18181b] border border-[#27272a] rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="text-zinc-400 text-[11px] font-semibold uppercase tracking-wider">
+          Hours Breakdown:
+        </div>
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span className="text-zinc-400">Build Season:</span>
+            <span className="font-bold text-white">{totalBuildHours} hrs</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-blue-400" />
+            <span className="text-zinc-400">Learning Days:</span>
+            <span className="font-bold text-white">{totalLearningHours} hrs</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-purple-400" />
+            <span className="text-zinc-400">Pre-Season:</span>
+            <span className="font-bold text-white">{totalPreseasonHours} hrs</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-amber-400" />
+            <span className="text-zinc-400">Demo:</span>
+            <span className="font-bold text-white">{totalDemoHours} hrs</span>
+          </div>
+        </div>
+      </div>
+
       {/* Action Notification */}
       {actionSuccess && (
         <div className="p-3.5 rounded-xl bg-emerald-950/70 border border-emerald-800 text-emerald-300 text-xs flex items-center justify-between shadow-lg">
@@ -325,219 +536,474 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Main Grid: Left 2/3 (Activity Log), Right 1/3 (Manual Sign In / Out & Shop Status) */}
+      {/* Main Grid: Left 2/3 (Reports & Logs), Right 1/3 (Manual Sign In / Out & Shop Status) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ======================================================== */}
-        {/* LEFT COLUMN: ACTIVITY FILTERS & TABLE */}
+        {/* LEFT COLUMN: HOURS BY CATEGORY REPORT / ACTIVITY LOG */}
         {/* ======================================================== */}
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-[#1c1c1f] rounded-2xl border border-[#27272a] shadow-xl overflow-hidden flex flex-col justify-between">
-            {/* Filter Header & Search Bar */}
-            <div className="p-5 border-b border-[#27272a] bg-[#151518] space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <h2 className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">
-                  Activity History Log
-                </h2>
-
-                {/* Search Box */}
-                <div className="relative w-full sm:w-60">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-500 pointer-events-none" />
-                  <input
-                    type="text"
-                    placeholder="Search by student..."
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full pl-8 pr-7 py-1.5 text-xs bg-[#121214] border border-[#27272a] rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500"
-                  />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-2.5 top-2 text-zinc-500 hover:text-white text-xs"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
+            {/* View Tab Switcher Header */}
+            <div className="p-4 border-b border-[#27272a] bg-[#151518] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 bg-[#101012] p-1 rounded-xl border border-[#27272a] self-start">
+                <button
+                  type="button"
+                  onClick={() => setActiveReportTab('hoursByCategory')}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    activeReportTab === 'hoursByCategory'
+                      ? 'bg-white text-zinc-950 shadow'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Hours by Category</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveReportTab('activityLog')}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    activeReportTab === 'activityLog'
+                      ? 'bg-white text-zinc-950 shadow'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Activity className="w-3.5 h-3.5" />
+                  <span>Activity Log</span>
+                </button>
               </div>
 
-              {/* Filter Pills */}
-              <div className="flex items-center gap-2 flex-wrap text-xs">
-                {filterButtons.map((btn) => (
+              {/* Search Box */}
+              <div className="relative w-full sm:w-60">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-500 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder={
+                    activeReportTab === 'hoursByCategory'
+                      ? 'Search students...'
+                      : 'Search activity...'
+                  }
+                  value={activeReportTab === 'hoursByCategory' ? hoursSearch : activitySearch}
+                  onChange={(e) => {
+                    if (activeReportTab === 'hoursByCategory') {
+                      setHoursSearch(e.target.value);
+                      setHoursCurrentPage(1);
+                    } else {
+                      setActivitySearch(e.target.value);
+                      setActivityCurrentPage(1);
+                    }
+                  }}
+                  className="w-full pl-8 pr-7 py-1.5 text-xs bg-[#121214] border border-[#27272a] rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500"
+                />
+                {(activeReportTab === 'hoursByCategory' ? hoursSearch : activitySearch) && (
                   <button
-                    key={btn.key}
                     type="button"
                     onClick={() => {
-                      setFilterType(btn.key);
-                      setCurrentPage(1);
+                      if (activeReportTab === 'hoursByCategory') {
+                        setHoursSearch('');
+                      } else {
+                        setActivitySearch('');
+                      }
                     }}
-                    className={`py-1.5 px-3 rounded-lg text-center font-medium transition-all ${
-                      filterType === btn.key
-                        ? 'bg-white text-zinc-950 font-bold shadow-sm'
-                        : 'bg-[#121214] text-zinc-400 hover:text-white hover:bg-zinc-800 border border-[#27272a]'
-                    }`}
+                    className="absolute right-2.5 top-2 text-zinc-500 hover:text-white text-xs"
                   >
-                    {btn.label}
+                    ✕
                   </button>
-                ))}
+                )}
               </div>
             </div>
 
-            {/* Activity Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-[#27272a] text-zinc-500 font-medium bg-[#121214]">
-                    <th className="py-3 px-5">Student</th>
-                    <th className="py-3 px-5">Status</th>
-                    <th className="py-3 px-5">Category</th>
-                    <th className="py-3 px-5 text-right">Date &amp; Time</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#27272a]">
-                  {paginatedEvents.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="py-12 text-center text-zinc-500 font-sans">
-                        No activity found matching the selected filters.
-                      </td>
-                    </tr>
-                  ) : (
-                    paginatedEvents.map((event) => (
-                      <tr key={event.id} className="hover:bg-zinc-850/40 transition-colors">
-                        {/* Student Name & ID */}
-                        <td className="py-3 px-5">
-                          <div className="font-semibold text-white">
-                            {event.studentName || 'Unknown Student'}
+            {/* ======================================================== */}
+            {/* VIEW 1: HOURS BY CATEGORY REPORT TABLE */}
+            {/* ======================================================== */}
+            {activeReportTab === 'hoursByCategory' && (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-[#27272a] text-zinc-400 font-medium bg-[#121214]">
+                        {/* Student Name */}
+                        <th
+                          onClick={() => handleHoursSort('name')}
+                          className="py-3 px-4 cursor-pointer hover:text-white transition-colors"
+                        >
+                          <div className="flex items-center gap-1">
+                            <span>Student</span>
+                            {renderSortArrow('name')}
                           </div>
-                          <div className="text-[11px] text-zinc-500">
-                            ID: {event.studentId || '—'}
+                        </th>
+
+                        {/* Student ID */}
+                        <th
+                          onClick={() => handleHoursSort('id')}
+                          className="py-3 px-3 cursor-pointer hover:text-white transition-colors"
+                        >
+                          <div className="flex items-center gap-1">
+                            <span>ID</span>
+                            {renderSortArrow('id')}
                           </div>
-                        </td>
+                        </th>
 
-                        {/* Action Status Badge */}
-                        <td className="py-3 px-5">
-                          {event.type === 'Signed In' && (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-950/60 border border-emerald-800/80 text-emerald-300">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                              Signed In
-                            </span>
-                          )}
-                          {event.type === 'Signed Out' && (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-950/60 border border-rose-900/80 text-rose-300">
-                              Signed Out {event.durationFormatted ? `(${event.durationFormatted})` : ''}
-                            </span>
-                          )}
-                          {event.type === 'Hours Adjusted' && (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-cyan-950/60 border border-cyan-800/80 text-cyan-300">
-                              Adjusted ({event.durationFormatted})
-                            </span>
-                          )}
-                        </td>
+                        {/* Build Season Hours */}
+                        <th
+                          onClick={() => handleHoursSort('build')}
+                          className="py-3 px-3 cursor-pointer hover:text-white transition-colors"
+                        >
+                          <div className="flex items-center gap-1 text-emerald-400">
+                            <span>Build Season</span>
+                            {renderSortArrow('build')}
+                          </div>
+                        </th>
 
-                        {/* Session Category */}
-                        <td className="py-3 px-5">
-                          {event.category.toLowerCase().includes('demo') ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-950/50 border border-amber-800/80 text-amber-300">
-                              <Sparkles className="w-3 h-3 text-amber-400" />
-                              Demo
-                            </span>
-                          ) : event.category.toLowerCase().includes('learning') ? (
-                            <span className="px-2 py-0.5 rounded text-[11px] bg-blue-950/40 border border-blue-800/60 text-blue-300">
-                              Learning Day
-                            </span>
-                          ) : event.category.toLowerCase().includes('preseason') ? (
-                            <span className="px-2 py-0.5 rounded text-[11px] bg-purple-950/40 border border-purple-800/60 text-purple-300">
-                              Preseason
-                            </span>
-                          ) : (
-                            <span className="text-zinc-400 text-[11px]">
-                              Regular Meeting
-                            </span>
-                          )}
-                        </td>
+                        {/* Learning Days Hours */}
+                        <th
+                          onClick={() => handleHoursSort('learning')}
+                          className="py-3 px-3 cursor-pointer hover:text-white transition-colors"
+                        >
+                          <div className="flex items-center gap-1 text-blue-400">
+                            <span>Learning Days</span>
+                            {renderSortArrow('learning')}
+                          </div>
+                        </th>
 
-                        {/* Date & Time */}
-                        <td className="py-3 px-5 text-right text-zinc-400">
-                          {formatEventTime(event.timestamp)}
-                        </td>
+                        {/* Pre-Season Hours */}
+                        <th
+                          onClick={() => handleHoursSort('preseason')}
+                          className="py-3 px-3 cursor-pointer hover:text-white transition-colors"
+                        >
+                          <div className="flex items-center gap-1 text-purple-400">
+                            <span>Pre-Season</span>
+                            {renderSortArrow('preseason')}
+                          </div>
+                        </th>
+
+                        {/* Demo Hours */}
+                        <th
+                          onClick={() => handleHoursSort('demo')}
+                          className="py-3 px-3 cursor-pointer hover:text-white transition-colors"
+                        >
+                          <div className="flex items-center gap-1 text-amber-400">
+                            <span>Demo</span>
+                            {renderSortArrow('demo')}
+                          </div>
+                        </th>
+
+                        {/* Total Hours */}
+                        <th
+                          onClick={() => handleHoursSort('total')}
+                          className="py-3 px-4 text-right cursor-pointer hover:text-white transition-colors"
+                        >
+                          <div className="flex items-center justify-end gap-1 font-bold text-white">
+                            <span>Total</span>
+                            {renderSortArrow('total')}
+                          </div>
+                        </th>
+
+                        {/* Status */}
+                        <th className="py-3 px-4 text-center">Status</th>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody className="divide-y divide-[#27272a]">
+                      {paginatedStudents.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="py-12 text-center text-zinc-500 font-sans">
+                            No students found matching your search.
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedStudents.map((s) => (
+                          <tr key={s.id} className="hover:bg-zinc-850/40 transition-colors">
+                            {/* Student Name */}
+                            <td className="py-3 px-4 font-semibold text-white truncate max-w-[150px]">
+                              {s.name}
+                            </td>
 
-            {/* Table Footer with Pagination */}
-            <div className="p-4 border-t border-[#27272a] bg-[#151518] flex flex-wrap items-center justify-between gap-4 text-xs text-zinc-400">
-              <div className="flex items-center gap-2">
-                <span>Page Size:</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="bg-[#121214] border border-[#27272a] rounded px-2 py-1 text-white focus:outline-none"
-                >
-                  <option value={10}>10</option>
-                  <option value={15}>15</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                </select>
-              </div>
+                            {/* Student ID */}
+                            <td className="py-3 px-3 text-zinc-400 font-mono">
+                              {s.id}
+                            </td>
 
-              <div>
-                <span>
-                  {filteredEvents.length > 0 ? (currentPage - 1) * pageSize + 1 : 0} to{' '}
-                  {Math.min(currentPage * pageSize, filteredEvents.length)} of {filteredEvents.length}
-                </span>
-              </div>
+                            {/* Build Season Hours */}
+                            <td className="py-3 px-3 text-emerald-400 font-semibold">
+                              {formatMinutesToHours(s.buildMinutes)}
+                            </td>
 
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage(1)}
-                  className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30"
-                  title="First Page"
-                >
-                  <ChevronsLeft className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30"
-                  title="Previous Page"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <span className="px-2">
-                  Page {currentPage} of {totalPages}
-                </span>
-                <button
-                  type="button"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30"
-                  title="Next Page"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage(totalPages)}
-                  className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30"
-                  title="Last Page"
-                >
-                  <ChevronsRight className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
+                            {/* Learning Days Hours */}
+                            <td className="py-3 px-3 text-blue-400">
+                              {formatMinutesToHours(s.learningMinutes)}
+                            </td>
+
+                            {/* Pre-Season Hours */}
+                            <td className="py-3 px-3 text-purple-400">
+                              {formatMinutesToHours(s.preseasonMinutes)}
+                            </td>
+
+                            {/* Demo Hours */}
+                            <td className="py-3 px-3 text-amber-400">
+                              {formatMinutesToHours(s.demoMinutes)}
+                            </td>
+
+                            {/* Total Hours */}
+                            <td className="py-3 px-4 text-right font-bold text-white">
+                              {formatMinutesToHours(s.totalMinutes)}
+                            </td>
+
+                            {/* Status */}
+                            <td className="py-3 px-4 text-center">
+                              {s.isClockedIn ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-800 text-emerald-300 font-semibold">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                  Present
+                                </span>
+                              ) : (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-500">
+                                  Out
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Table Footer with Pagination */}
+                <div className="p-4 border-t border-[#27272a] bg-[#151518] flex flex-wrap items-center justify-between gap-4 text-xs text-zinc-400">
+                  <div className="flex items-center gap-2">
+                    <span>Page Size:</span>
+                    <select
+                      value={hoursPageSize}
+                      onChange={(e) => {
+                        setHoursPageSize(Number(e.target.value));
+                        setHoursCurrentPage(1);
+                      }}
+                      className="bg-[#121214] border border-[#27272a] rounded px-2 py-1 text-white focus:outline-none"
+                    >
+                      <option value={10}>10</option>
+                      <option value={15}>15</option>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <span>
+                      {filteredAndSortedStudents.length > 0
+                        ? (hoursCurrentPage - 1) * hoursPageSize + 1
+                        : 0}{' '}
+                      to {Math.min(hoursCurrentPage * hoursPageSize, filteredAndSortedStudents.length)} of{' '}
+                      {filteredAndSortedStudents.length}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={hoursCurrentPage <= 1}
+                      onClick={() => setHoursCurrentPage(1)}
+                      className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30"
+                      title="First Page"
+                    >
+                      <ChevronsLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={hoursCurrentPage <= 1}
+                      onClick={() => setHoursCurrentPage((p) => Math.max(1, p - 1))}
+                      className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30"
+                      title="Previous Page"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="px-2">
+                      Page {hoursCurrentPage} of {hoursTotalPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={hoursCurrentPage >= hoursTotalPages}
+                      onClick={() => setHoursCurrentPage((p) => Math.min(hoursTotalPages, p + 1))}
+                      className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30"
+                      title="Next Page"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={hoursCurrentPage >= hoursTotalPages}
+                      onClick={() => setHoursCurrentPage(hoursTotalPages)}
+                      className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30"
+                      title="Last Page"
+                    >
+                      <ChevronsRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* ======================================================== */}
+            {/* VIEW 2: LIVE ACTIVITY STREAM */}
+            {/* ======================================================== */}
+            {activeReportTab === 'activityLog' && (
+              <>
+                {/* Filter Pills */}
+                <div className="p-3 border-b border-[#27272a] bg-[#121214] flex items-center gap-2 flex-wrap text-xs">
+                  {activityFilterButtons.map((btn) => (
+                    <button
+                      key={btn.key}
+                      type="button"
+                      onClick={() => {
+                        setActivityFilter(btn.key);
+                        setActivityCurrentPage(1);
+                      }}
+                      className={`py-1.5 px-3 rounded-lg text-center font-medium transition-all ${
+                        activityFilter === btn.key
+                          ? 'bg-white text-zinc-950 font-bold shadow-sm'
+                          : 'bg-[#18181b] text-zinc-400 hover:text-white hover:bg-zinc-800 border border-[#27272a]'
+                      }`}
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Activity Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-[#27272a] text-zinc-500 font-medium bg-[#121214]">
+                        <th className="py-3 px-5">Student</th>
+                        <th className="py-3 px-5">Status</th>
+                        <th className="py-3 px-5">Category</th>
+                        <th className="py-3 px-5 text-right">Date &amp; Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#27272a]">
+                      {paginatedEvents.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="py-12 text-center text-zinc-500 font-sans">
+                            No activity found matching the selected filters.
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedEvents.map((event) => (
+                          <tr key={event.id} className="hover:bg-zinc-850/40 transition-colors">
+                            {/* Student Name & ID */}
+                            <td className="py-3 px-5">
+                              <div className="font-semibold text-white">
+                                {event.studentName || 'Unknown Student'}
+                              </div>
+                              <div className="text-[11px] text-zinc-500">
+                                ID: {event.studentId || '—'}
+                              </div>
+                            </td>
+
+                            {/* Action Status Badge */}
+                            <td className="py-3 px-5">
+                              {event.type === 'Signed In' && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-950/60 border border-emerald-800/80 text-emerald-300">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                  Signed In
+                                </span>
+                              )}
+                              {event.type === 'Signed Out' && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-950/60 border border-rose-900/80 text-rose-300">
+                                  Signed Out {event.durationFormatted ? `(${event.durationFormatted})` : ''}
+                                </span>
+                              )}
+                              {event.type === 'Hours Adjusted' && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-cyan-950/60 border border-cyan-800/80 text-cyan-300">
+                                  Adjusted ({event.durationFormatted})
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Session Category Badge */}
+                            <td className="py-3 px-5">
+                              {renderCategoryBadge(event.category)}
+                            </td>
+
+                            {/* Date & Time */}
+                            <td className="py-3 px-5 text-right text-zinc-400">
+                              {formatEventTime(event.timestamp)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Table Footer with Pagination */}
+                <div className="p-4 border-t border-[#27272a] bg-[#151518] flex flex-wrap items-center justify-between gap-4 text-xs text-zinc-400">
+                  <div className="flex items-center gap-2">
+                    <span>Page Size:</span>
+                    <select
+                      value={activityPageSize}
+                      onChange={(e) => {
+                        setActivityPageSize(Number(e.target.value));
+                        setActivityCurrentPage(1);
+                      }}
+                      className="bg-[#121214] border border-[#27272a] rounded px-2 py-1 text-white focus:outline-none"
+                    >
+                      <option value={10}>10</option>
+                      <option value={15}>15</option>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <span>
+                      {filteredEvents.length > 0 ? (activityCurrentPage - 1) * activityPageSize + 1 : 0} to{' '}
+                      {Math.min(activityCurrentPage * activityPageSize, filteredEvents.length)} of {filteredEvents.length}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={activityCurrentPage <= 1}
+                      onClick={() => setActivityCurrentPage(1)}
+                      className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30"
+                      title="First Page"
+                    >
+                      <ChevronsLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={activityCurrentPage <= 1}
+                      onClick={() => setActivityCurrentPage((p) => Math.max(1, p - 1))}
+                      className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30"
+                      title="Previous Page"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="px-2">
+                      Page {activityCurrentPage} of {activityTotalPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={activityCurrentPage >= activityTotalPages}
+                      onClick={() => setActivityCurrentPage((p) => Math.min(activityTotalPages, p + 1))}
+                      className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30"
+                      title="Next Page"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={activityCurrentPage >= activityTotalPages}
+                      onClick={() => setActivityCurrentPage(activityTotalPages)}
+                      className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30"
+                      title="Last Page"
+                    >
+                      <ChevronsRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -552,44 +1018,74 @@ export const AdminDashboard: React.FC = () => {
                 Manual Sign In / Sign Out
               </h2>
               <p className="text-[11px] text-zinc-400 mt-1 font-sans">
-                Sign a student in or out if they forgot their PIN.
+                Sign a student in or out manually for a specific session category.
               </p>
             </div>
 
-            {/* Category Segmented Selector: Regular Meeting vs Demos */}
+            {/* Category Selector: 4 Session Categories */}
             <div className="space-y-1.5">
               <label className="text-[11px] text-zinc-400 block font-semibold">
-                Session Type:
+                Session Category:
               </label>
-              <div className="bg-[#121214] p-1 rounded-xl border border-[#27272a] grid grid-cols-2 gap-1 text-xs">
+              <div className="bg-[#121214] p-1.5 rounded-xl border border-[#27272a] grid grid-cols-2 gap-1.5 text-xs">
+                {/* 1. Build Season */}
                 <button
                   type="button"
-                  onClick={() => setSessionCategory('regular')}
-                  className={`py-2 rounded-lg font-medium transition-all ${
-                    sessionCategory === 'regular'
-                      ? 'bg-white text-zinc-950 font-bold shadow-sm'
-                      : 'text-zinc-400 hover:text-white'
+                  onClick={() => setSessionCategory('Build Season')}
+                  className={`py-2 px-2 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 text-center ${
+                    sessionCategory === 'Build Season'
+                      ? 'bg-emerald-600 text-white font-bold shadow-sm'
+                      : 'text-zinc-400 hover:text-white bg-[#18181b]'
                   }`}
                 >
-                  Regular Meeting
+                  <Wrench className="w-3.5 h-3.5" />
+                  <span>Build Season</span>
                 </button>
+
+                {/* 2. Learning Days */}
                 <button
                   type="button"
-                  onClick={() => setSessionCategory('demo')}
-                  className={`py-2 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 ${
-                    sessionCategory === 'demo'
-                      ? 'bg-amber-400 text-zinc-950 font-bold shadow-sm'
-                      : 'text-zinc-400 hover:text-white'
+                  onClick={() => setSessionCategory('Learning Days')}
+                  className={`py-2 px-2 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 text-center ${
+                    sessionCategory === 'Learning Days'
+                      ? 'bg-blue-600 text-white font-bold shadow-sm'
+                      : 'text-zinc-400 hover:text-white bg-[#18181b]'
+                  }`}
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>Learning Days</span>
+                </button>
+
+                {/* 3. Pre-Season */}
+                <button
+                  type="button"
+                  onClick={() => setSessionCategory('Pre-Season')}
+                  className={`py-2 px-2 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 text-center ${
+                    sessionCategory === 'Pre-Season'
+                      ? 'bg-purple-600 text-white font-bold shadow-sm'
+                      : 'text-zinc-400 hover:text-white bg-[#18181b]'
+                  }`}
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>Pre-Season</span>
+                </button>
+
+                {/* 4. Demo */}
+                <button
+                  type="button"
+                  onClick={() => setSessionCategory('Demo')}
+                  className={`py-2 px-2 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 text-center ${
+                    sessionCategory === 'Demo'
+                      ? 'bg-amber-500 text-zinc-950 font-bold shadow-sm'
+                      : 'text-zinc-400 hover:text-white bg-[#18181b]'
                   }`}
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>Demos</span>
+                  <span>Demo</span>
                 </button>
               </div>
               <p className="text-[10px] text-zinc-500 font-sans mt-1">
-                {sessionCategory === 'demo'
-                  ? '⭐ Demos will automatically credit towards Demo Hours in the Hours Editor.'
-                  : '🔧 Regular meetings credit towards standard Build Hours.'}
+                Hours will automatically credit towards {sessionCategory} in the hours report.
               </p>
             </div>
 
@@ -643,9 +1139,7 @@ export const AdminDashboard: React.FC = () => {
                     className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-1.5"
                   >
                     <LogIn className="w-4 h-4" />
-                    <span>
-                      Sign In to {sessionCategory === 'demo' ? 'Demo' : 'Regular Meeting'}
-                    </span>
+                    <span>Sign In to {sessionCategory}</span>
                   </button>
                 )}
               </div>
