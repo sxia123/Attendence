@@ -5,7 +5,7 @@ import { HoursLeaderboard } from './components/HoursLeaderboard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { HoursEditor } from './components/HoursEditor';
 import { AdminPasswordModal } from './components/AdminPasswordModal';
-import { Heart, Github } from 'lucide-react';
+import { Github } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>('signin');
@@ -13,11 +13,12 @@ export const App: React.FC = () => {
 
   // Handle navigation requests from Sidebar
   const handleViewChange = (view: AppView): void => {
-    if (view === 'signin') {
-      setCurrentView('signin');
+    if (view === 'signin' || view === 'leaderboard') {
+      // Both Student Attendance and Top 5 Leaderboard are public for everyone
+      setCurrentView(view);
       setPendingAdminView(null);
     } else {
-      // Require admin password every time an admin tab is accessed
+      // Require admin password every time an admin tab (reports or hours) is accessed
       setPendingAdminView(view);
     }
   };
@@ -65,18 +66,15 @@ export const App: React.FC = () => {
         </main>
 
         {/* Persistent Bottom Credits Bar */}
-        <footer className="h-10 border-t border-[#27272a] bg-[#121215] px-6 flex items-center justify-between text-[11px] font-mono text-zinc-500 flex-shrink-0 z-30">
-          <div className="flex items-center gap-1.5">
-            <span>Made with</span>
-            <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 inline" />
-            <span>by</span>
-            <span className="text-zinc-300 underline underline-offset-4 decoration-zinc-600">
-              Angad
-            </span>
+        <footer className="h-10 border-t border-[#27272a] bg-[#121215] px-6 flex items-center justify-between text-[11px] font-mono text-zinc-400 flex-shrink-0 z-30">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-zinc-200">Shaker Robotics</span>
+            <span className="text-zinc-600">•</span>
+            <span className="text-cyan-400 font-bold">Team 2791</span>
           </div>
 
           <div className="flex items-center gap-4">
-            <span className="text-zinc-600 hidden sm:inline">FRC Attendance System</span>
+            <span className="text-zinc-500 hidden sm:inline">FRC Attendance System</span>
             <a
               href="https://codeberg.org/tendulkar/attendance"
               target="_blank"
@@ -94,11 +92,7 @@ export const App: React.FC = () => {
       {pendingAdminView && (
         <AdminPasswordModal
           targetTabName={
-            pendingAdminView === 'leaderboard'
-              ? 'Hours Leaderboard'
-              : pendingAdminView === 'reports'
-              ? 'Activity & Reports'
-              : 'Edit Hours'
+            pendingAdminView === 'reports' ? 'Activity & Reports' : 'Edit Hours'
           }
           onSuccess={handleAdminSuccess}
           onCancel={handleAdminCancel}

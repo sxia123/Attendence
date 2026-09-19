@@ -36,11 +36,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
           <Clock className="w-5 h-5" />
         </button>
 
-        {/* 2. Hours Leaderboard (Trophy) */}
+        {/* 2. Top 5 Leaderboard (Trophy - Public) */}
         <button
           type="button"
           onClick={() => onViewChange('leaderboard')}
-          title="Hours Leaderboard (Admin password required)"
+          title="Top 5 Leaderboard"
           className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
             currentView === 'leaderboard'
               ? 'bg-zinc-800 text-white shadow-md border border-zinc-700'
