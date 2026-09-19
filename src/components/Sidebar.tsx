@@ -1,101 +1,69 @@
 import React from 'react';
-import { LayoutGrid, Clock, FileEdit, Settings, LogOut, Radio } from 'lucide-react';
+import { LayoutGrid, Clock, FileEdit, Radio } from 'lucide-react';
 
-export type AppView = 'kiosk' | 'dashboard' | 'editor';
+export type AppView = 'signin' | 'reports' | 'hours';
 
 interface SidebarProps {
   currentView: AppView;
   onViewChange: (view: AppView) => void;
-  onOpenSettings?: () => void;
-  onLogout: () => void;
-  isAdmin: boolean;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({
-  currentView,
-  onViewChange,
-  onOpenSettings,
-  onLogout,
-  isAdmin,
-}) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) => {
   return (
-    <aside className="w-16 bg-[#121215] border-r border-[#27272a] flex flex-col items-center justify-between py-4 select-none flex-shrink-0 z-40">
+    <aside className="w-16 bg-[#121215] border-r border-[#27272a] flex flex-col items-center py-5 select-none flex-shrink-0 z-40">
       {/* Top Logo Badge */}
-      <div className="flex flex-col items-center gap-6">
-        <div
-          onClick={() => onViewChange('kiosk')}
-          className="w-10 h-10 rounded-full border-2 border-cyan-500 bg-cyan-950/40 text-cyan-400 flex items-center justify-center cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.35)] hover:scale-105 transition-all"
-          title="Attendance System"
-        >
-          <Radio className="w-5 h-5" />
-        </div>
-
-        {/* Navigation Items */}
-        <nav className="flex flex-col items-center gap-3">
-          {/* 1. Kiosk View (Clock) */}
-          <button
-            type="button"
-            onClick={() => onViewChange('kiosk')}
-            title="Attendance Kiosk"
-            className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${
-              currentView === 'kiosk'
-                ? 'bg-zinc-800 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-white hover:bg-zinc-850'
-            }`}
-          >
-            <Clock className="w-5 h-5" />
-          </button>
-
-          {/* 2. Admin Dashboard (LayoutGrid) */}
-          <button
-            type="button"
-            onClick={() => onViewChange('dashboard')}
-            title={isAdmin ? 'Telemetry & Dashboard' : 'Admin Dashboard (Passcode required)'}
-            className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${
-              currentView === 'dashboard'
-                ? 'bg-zinc-800 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-white hover:bg-zinc-850'
-            }`}
-          >
-            <LayoutGrid className="w-5 h-5" />
-          </button>
-
-          {/* 3. Hours Editor (FileEdit) */}
-          <button
-            type="button"
-            onClick={() => onViewChange('editor')}
-            title={isAdmin ? 'Hours Spreadsheet' : 'Hours Editor (Passcode required)'}
-            className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${
-              currentView === 'editor'
-                ? 'bg-zinc-800 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-white hover:bg-zinc-850'
-            }`}
-          >
-            <FileEdit className="w-5 h-5" />
-          </button>
-        </nav>
+      <div
+        onClick={() => onViewChange('signin')}
+        className="w-10 h-10 rounded-full border-2 border-cyan-500 bg-cyan-950/40 text-cyan-400 flex items-center justify-center cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.35)] hover:scale-105 transition-all mb-8"
+        title="Student Attendance (Home)"
+      >
+        <Radio className="w-5 h-5" />
       </div>
 
-      {/* Bottom Icons */}
-      <div className="flex flex-col items-center gap-3">
+      {/* Main Navigation Items */}
+      <nav className="flex flex-col items-center gap-3.5">
+        {/* 1. Student Sign In (Clock) */}
         <button
           type="button"
-          onClick={onOpenSettings}
-          title="Settings"
-          className="w-10 h-10 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-850 flex items-center justify-center transition-colors"
+          onClick={() => onViewChange('signin')}
+          title="Student Attendance"
+          className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+            currentView === 'signin'
+              ? 'bg-zinc-800 text-white shadow-md border border-zinc-700'
+              : 'text-zinc-400 hover:text-white hover:bg-zinc-850'
+          }`}
         >
-          <Settings className="w-5 h-5" />
+          <Clock className="w-5 h-5" />
         </button>
 
+        {/* 2. Activity & Reports (LayoutGrid) */}
         <button
           type="button"
-          onClick={onLogout}
-          title="Exit / Lock"
-          className="w-10 h-10 rounded-lg border border-rose-950 bg-rose-950/20 text-rose-400 hover:bg-rose-900/40 hover:text-rose-300 flex items-center justify-center transition-all"
+          onClick={() => onViewChange('reports')}
+          title="Activity & Reports (Admin password required)"
+          className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+            currentView === 'reports'
+              ? 'bg-zinc-800 text-white shadow-md border border-zinc-700'
+              : 'text-zinc-400 hover:text-white hover:bg-zinc-850'
+          }`}
         >
-          <LogOut className="w-5 h-5" />
+          <LayoutGrid className="w-5 h-5" />
         </button>
-      </div>
+
+        {/* 3. Edit Hours (FileEdit) */}
+        <button
+          type="button"
+          onClick={() => onViewChange('hours')}
+          title="Edit Hours (Admin password required)"
+          className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+            currentView === 'hours'
+              ? 'bg-zinc-800 text-white shadow-md border border-zinc-700'
+              : 'text-zinc-400 hover:text-white hover:bg-zinc-850'
+          }`}
+        >
+          <FileEdit className="w-5 h-5" />
+        </button>
+      </nav>
     </aside>
   );
 };

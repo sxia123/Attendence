@@ -4,7 +4,6 @@ import { CheckCircle2, LogOut, AlertCircle } from 'lucide-react';
 
 interface StudentKioskProps {
   onPunchSuccess?: () => void;
-  sessionTitle?: string;
 }
 
 interface SignalModalState {
@@ -15,10 +14,7 @@ interface SignalModalState {
   duration?: string;
 }
 
-export const StudentKiosk: React.FC<StudentKioskProps> = ({
-  onPunchSuccess,
-  sessionTitle = 'Build Season',
-}) => {
+export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) => {
   const [studentId, setStudentId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -97,11 +93,16 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-6 select-none max-w-6xl mx-auto w-full">
-      {/* Top Monospaced Title (Matching sc-attendance.png) */}
-      <h1 className="text-3xl sm:text-5xl font-mono font-bold tracking-widest text-white mb-10 text-center">
-        {sessionTitle}
-      </h1>
+    <div className="flex-1 flex flex-col items-center justify-center p-6 select-none max-w-5xl mx-auto w-full">
+      {/* Title & Subtitle */}
+      <div className="text-center mb-8">
+        <h1 className="text-3xl sm:text-4xl font-mono font-bold tracking-wider text-white">
+          Student Attendance
+        </h1>
+        <p className="text-sm font-mono text-zinc-400 mt-2">
+          Type your 5-digit Student ID on your keyboard to sign in or sign out.
+        </p>
+      </div>
 
       {/* Error Message */}
       {errorMessage && (
@@ -111,12 +112,12 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({
         </div>
       )}
 
-      {/* Main Dual-Card Grid (Matching sc-attendance.png) */}
+      {/* Main Dual-Card Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl">
         {/* LEFT CARD: 5-Digit PIN Entry */}
         <div
           onClick={() => inputRef.current?.focus()}
-          className="bg-[#1c1c1f] rounded-2xl border border-[#27272a] p-8 sm:p-10 flex flex-col justify-center cursor-pointer shadow-xl relative min-h-[22rem] group"
+          className="bg-[#1c1c1f] rounded-2xl border border-[#27272a] p-8 sm:p-10 flex flex-col justify-center cursor-pointer shadow-xl relative min-h-[20rem] group"
         >
           {/* Hidden hardware input */}
           <input
@@ -147,7 +148,7 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({
             Student ID
           </label>
 
-          {/* 5 PIN Digit Boxes matching screenshot */}
+          {/* 5 PIN Digit Boxes */}
           <div className="flex items-center justify-between gap-2 sm:gap-3 my-auto">
             {[0, 1, 2, 3, 4].map((index) => {
               const char = studentId[index];
@@ -170,7 +171,7 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({
           </div>
 
           <div className="text-[11px] font-mono text-zinc-500 mt-6 flex justify-between items-center">
-            <span>Type 5 digits to clock in / out</span>
+            <span>Type 5 numbers to sign in or out</span>
             {studentId.length > 0 && (
               <button
                 type="button"
@@ -187,16 +188,14 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({
           </div>
         </div>
 
-        {/* RIGHT CARD: QR Code & Active Progress Line */}
-        <div className="bg-[#1c1c1f] rounded-2xl border border-[#27272a] p-8 sm:p-10 flex flex-col items-center justify-between shadow-xl min-h-[22rem]">
-          {/* Stylized QR Code matching screenshot */}
-          <div className="w-full max-w-[15rem] aspect-square bg-white rounded-xl p-3 shadow-inner flex items-center justify-center">
+        {/* RIGHT CARD: QR Code & Status Bar */}
+        <div className="bg-[#1c1c1f] rounded-2xl border border-[#27272a] p-8 sm:p-10 flex flex-col items-center justify-between shadow-xl min-h-[20rem]">
+          <div className="w-full max-w-[14rem] aspect-square bg-white rounded-xl p-3 shadow-inner flex items-center justify-center">
             <svg
               viewBox="0 0 100 100"
               className="w-full h-full text-black fill-current"
               xmlns="http://www.w3.org/2000/svg"
             >
-              {/* Corner squares */}
               <rect x="5" y="5" width="26" height="26" rx="4" fill="#000" />
               <rect x="10" y="10" width="16" height="16" rx="2" fill="#fff" />
               <rect x="14" y="14" width="8" height="8" rx="2" fill="#000" />
@@ -209,7 +208,6 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({
               <rect x="10" y="74" width="16" height="16" rx="2" fill="#fff" />
               <rect x="14" y="78" width="8" height="8" rx="2" fill="#000" />
 
-              {/* Data modules */}
               <rect x="36" y="8" width="8" height="6" rx="1" />
               <rect x="48" y="6" width="6" height="8" rx="1" />
               <rect x="58" y="12" width="6" height="6" rx="1" />
@@ -239,9 +237,8 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({
             </svg>
           </div>
 
-          {/* Glowing Status Bar underneath */}
-          <div className="w-full max-w-[15rem] mt-6">
-            <div className="h-2.5 w-full bg-white rounded-full shadow-[0_0_12px_rgba(255,255,255,0.4)] animate-pulse" />
+          <div className="w-full max-w-[14rem] mt-6">
+            <div className="h-2 w-full bg-cyan-400 rounded-full shadow-[0_0_10px_rgba(6,182,212,0.6)] animate-pulse" />
           </div>
         </div>
       </div>
@@ -282,13 +279,13 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({
               <div>Time: {signalModal.time}</div>
               {signalModal.duration && (
                 <div className="text-2xl sm:text-3xl font-extrabold text-white bg-white/10 px-4 py-2 rounded-xl mt-2">
-                  Session: {signalModal.duration}
+                  Session Duration: {signalModal.duration}
                 </div>
               )}
             </div>
 
             <div className="text-xs font-mono text-white/70 pt-6 animate-pulse">
-              Tap anywhere to continue
+              Tap anywhere to return
             </div>
           </div>
         </div>

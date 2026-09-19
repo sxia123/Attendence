@@ -233,15 +233,15 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit }) => {
 
   return (
     <div className="flex-1 flex flex-col w-full h-full select-none text-zinc-100 p-6 overflow-hidden">
-      {/* Top Action Bar (Matching sc-editor-censored.png) */}
+      {/* Top Action Bar */}
       <div className="flex items-center gap-3 mb-6 flex-wrap">
         <button
           type="button"
           onClick={onExit}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-900 bg-rose-950/40 text-rose-400 hover:bg-rose-900/60 font-mono text-xs transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-200 hover:text-white hover:bg-zinc-700 font-mono text-xs transition-colors"
         >
           <LogOut className="w-3.5 h-3.5" />
-          <span>Exit</span>
+          <span>← Back to Student Attendance</span>
         </button>
 
         <a
@@ -250,7 +250,7 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit }) => {
           className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-[#27272a] bg-[#1c1c1f] text-zinc-300 hover:text-white font-mono text-xs transition-colors"
         >
           <Download className="w-3.5 h-3.5" />
-          <span>Export All</span>
+          <span>Download Spreadsheet (CSV)</span>
         </a>
 
         <button
