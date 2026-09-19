@@ -118,7 +118,6 @@ export const HoursLeaderboard: React.FC<HoursLeaderboardProps> = () => {
                     <h2 className="text-base sm:text-lg font-bold text-white truncate">
                       {student.name}
                     </h2>
-                    <span className="text-xs text-zinc-500">ID: {student.id}</span>
                   </div>
                 </div>
 
