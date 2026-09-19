@@ -2,13 +2,17 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Lock, AlertCircle, X } from 'lucide-react';
 
 interface AdminPasswordModalProps {
-  targetTabName: string;
+  targetTabName?: string;
+  title?: string;
+  description?: string;
   onSuccess: () => void;
   onCancel: () => void;
 }
 
 export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
   targetTabName,
+  title = 'Admin Access',
+  description,
   onSuccess,
   onCancel,
 }) => {
@@ -68,10 +72,15 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
             <Lock className="w-5 h-5 text-white" />
           </div>
           <h2 className="text-lg font-bold text-white tracking-wide">
-            Admin Access
+            {title}
           </h2>
           <p className="text-xs text-zinc-400">
-            Enter the admin password to open <span className="text-white font-semibold">{targetTabName}</span>.
+            {description || (
+              <>
+                Enter the admin password to open{' '}
+                <span className="text-white font-semibold">{targetTabName}</span>.
+              </>
+            )}
           </p>
         </div>
 

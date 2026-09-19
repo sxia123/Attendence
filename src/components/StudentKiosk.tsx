@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PunchResponse, HourCategory } from '../types/attendance';
+import { AdminPasswordModal } from './AdminPasswordModal';
 import {
   CheckCircle2,
   LogOut,
@@ -34,11 +35,15 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) =>
   const [activeSession, setActiveSession] = useState<HourCategory | null>(() => {
     return (sessionStorage.getItem('kiosk_session_type') as HourCategory) || null;
   });
+  const [previousSession, setPreviousSession] = useState<HourCategory | null>(() => {
+    return (sessionStorage.getItem('kiosk_session_type') as HourCategory) || null;
+  });
 
-  // Password verification state
+  // Password verification states
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [isVerifyingPassword, setIsVerifyingPassword] = useState<boolean>(false);
+  const [isChangeSessionPasswordOpen, setIsChangeSessionPasswordOpen] = useState<boolean>(false);
 
   // Student PIN entry states
   const [studentId, setStudentId] = useState<string>('');
@@ -100,6 +105,7 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) =>
   // Handle choosing a session category
   const handleSelectSession = (category: HourCategory): void => {
     setActiveSession(category);
+    setPreviousSession(category);
     sessionStorage.setItem('kiosk_session_type', category);
   };
 
@@ -107,10 +113,25 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) =>
   const handleLockKiosk = (): void => {
     setIsUnlocked(false);
     setActiveSession(null);
+    setPreviousSession(null);
     sessionStorage.removeItem('kiosk_unlocked');
     sessionStorage.removeItem('kiosk_session_type');
     setPasswordInput('');
     setPasswordError(null);
+    setIsChangeSessionPasswordOpen(false);
+  };
+
+  // Prompt password before allowing session change
+  const handleChangeSessionClick = (): void => {
+    setIsChangeSessionPasswordOpen(true);
+  };
+
+  // When admin password is verified, clear session to show session picker
+  const handlePasswordSuccessForChangeSession = (): void => {
+    setIsChangeSessionPasswordOpen(false);
+    setPreviousSession(activeSession);
+    setActiveSession(null);
+    sessionStorage.removeItem('kiosk_session_type');
   };
 
   // Handle student 5-digit PIN submission
@@ -328,13 +349,28 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) =>
           ))}
         </div>
 
-        <div className="mt-8">
+        <div className="mt-8 flex items-center gap-4">
+          {previousSession && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSession(previousSession);
+                  sessionStorage.setItem('kiosk_session_type', previousSession);
+                }}
+                className="text-xs text-zinc-400 hover:text-white underline underline-offset-4 transition-colors"
+              >
+                ← Keep Current Session ({previousSession})
+              </button>
+              <span className="text-zinc-600">•</span>
+            </>
+          )}
           <button
             type="button"
             onClick={handleLockKiosk}
             className="text-xs text-zinc-500 hover:text-white underline underline-offset-4 transition-colors"
           >
-            ← Lock Kiosk Again
+            Lock Kiosk
           </button>
         </div>
       </div>
@@ -359,7 +395,7 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) =>
         <div className="flex items-center gap-3 text-xs">
           <button
             type="button"
-            onClick={() => setActiveSession(null)}
+            onClick={handleChangeSessionClick}
             className="text-zinc-400 hover:text-cyan-300 underline text-xs transition-colors"
           >
             Change Session
@@ -572,6 +608,16 @@ export const StudentKiosk: React.FC<StudentKioskProps> = ({ onPunchSuccess }) =>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Admin password modal before allowing session change */}
+      {isChangeSessionPasswordOpen && (
+        <AdminPasswordModal
+          title="Change Session"
+          description="Enter the admin password to change the active workshop session category."
+          onSuccess={handlePasswordSuccessForChangeSession}
+          onCancel={() => setIsChangeSessionPasswordOpen(false)}
+        />
       )}
     </div>
   );
