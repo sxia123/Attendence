@@ -1,202 +1,173 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { LeadLockBar } from './components/LeadLockBar';
-import { InstantPunchKiosk } from './components/InstantPunchKiosk';
-import { TimesheetDatabase } from './components/TimesheetDatabase';
-import { RosterDirectoryModal } from './components/RosterDirectoryModal';
-import { Member, AttendanceEntry } from './types/attendance';
-import { Clock, Database, Users } from 'lucide-react';
+import React, { useState } from 'react';
+import { Sidebar, AppView } from './components/Sidebar';
+import { StudentKiosk } from './components/StudentKiosk';
+import { AdminDashboard } from './components/AdminDashboard';
+import { HoursEditor } from './components/HoursEditor';
+import { AuthScreen } from './components/AuthScreen';
+import { Heart, Github } from 'lucide-react';
 
 export const App: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState<'kiosk' | 'database'>('kiosk');
-  const [isLocked, setIsLocked] = useState<boolean>(true);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [entries, setEntries] = useState<AttendanceEntry[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRosterOpen, setIsRosterOpen] = useState<boolean>(false);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [currentView, setCurrentView] = useState<AppView>('kiosk');
+  const [showAuthScreen, setShowAuthScreen] = useState<boolean>(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
-  // Fetch terminal lock status
-  const fetchLockStatus = useCallback(async (): Promise<void> => {
+  // Handle student login from AuthScreen
+  const handleStudentAuth = (studentId: string): void => {
+    setShowAuthScreen(false);
+    setCurrentView('kiosk');
+    // Trigger punch directly via API
+    void fetch('/api/punch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: studentId }),
+    });
+  };
+
+  // Handle admin login from AuthScreen
+  const handleAdminAuth = async (passcode: string): Promise<boolean> => {
     try {
-      const res = await fetch('/api/terminal/status');
-      if (res.ok) {
-        const data = await res.json() as { isLocked: boolean };
-        setIsLocked(data.isLocked);
-      }
-    } catch (error) {
-      void error;
-    }
-  }, []);
+      const res = await fetch('/api/developer/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: passcode }),
+      });
 
-  // Fetch members
-  const fetchMembers = useCallback(async (): Promise<void> => {
-    try {
-      const res = await fetch('/api/members');
       if (res.ok) {
-        const data = await res.json() as Member[];
-        setMembers(data);
+        setIsAdmin(true);
+        setShowAuthScreen(false);
+        setCurrentView('dashboard');
+        return true;
       }
-    } catch (error) {
-      void error;
-    }
-  }, []);
-
-  // Fetch attendance entries
-  const fetchEntries = useCallback(async (): Promise<void> => {
-    setIsLoading(true);
-    try {
-      const res = await fetch('/api/entries');
-      if (res.ok) {
-        const data = await res.json() as AttendanceEntry[];
-        setEntries(data);
-      }
-    } catch (error) {
-      void error;
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void fetchLockStatus();
-    void fetchMembers();
-    void fetchEntries();
-  }, [fetchLockStatus, fetchMembers, fetchEntries]);
-
-  const handleLockToggle = async (): Promise<void> => {
-    try {
-      const res = await fetch('/api/terminal/lock', { method: 'POST' });
-      if (res.ok) {
-        setIsLocked(true);
-      }
-    } catch (error) {
-      void error;
+      return false;
+    } catch {
+      return false;
     }
   };
 
-  const handleUnlockSuccess = (): void => {
-    setIsLocked(false);
+  // Handle navigation requests
+  const handleViewChange = (view: AppView): void => {
+    if ((view === 'dashboard' || view === 'editor') && !isAdmin) {
+      setShowAuthScreen(true);
+      return;
+    }
+    setCurrentView(view);
   };
 
-  const handlePunchSuccess = (): void => {
-    void fetchMembers();
-    void fetchEntries();
+  // Handle logout
+  const handleLogout = (): void => {
+    setIsAdmin(false);
+    setShowAuthScreen(true);
   };
 
   return (
-    <div className="min-h-screen bg-white text-notion-text flex flex-col selection:bg-[#E8DEEE]">
-      {/* Top Header & Lead Lock Bar */}
-      <LeadLockBar
-        isLocked={isLocked}
-        onLockToggle={handleLockToggle}
-        onUnlockSuccess={handleUnlockSuccess}
-      />
+    <div className="h-screen w-screen bg-[#121215] text-zinc-100 flex flex-col font-sans select-none overflow-hidden">
+      {/* If AuthScreen is active */}
+      {showAuthScreen ? (
+        <AuthScreen
+          onStudentAuth={handleStudentAuth}
+          onAdminAuth={handleAdminAuth}
+        />
+      ) : (
+        <div className="flex-1 flex overflow-hidden">
+          {/* Slim Left Navigation Sidebar (Matching sc-attendance.png & sc-dashboard.png) */}
+          <Sidebar
+            currentView={currentView}
+            onViewChange={handleViewChange}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onLogout={handleLogout}
+            isAdmin={isAdmin}
+          />
 
-      {/* Main Notion Page Container */}
-      <div className="flex-1 max-w-5xl w-full mx-auto px-6 py-8 flex flex-col space-y-6">
-        {/* Navigation Bar between Sign In Kiosk and Database */}
-        <div className="flex items-center justify-between border-b border-notion-border pb-3">
-          <div className="flex items-center space-x-1 bg-notion-surface/60 p-1 border border-notion-border rounded-md">
-            <button
-              type="button"
-              onClick={() => setCurrentPage('kiosk')}
-              className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded transition-all ${
-                currentPage === 'kiosk'
-                  ? 'bg-white text-notion-text font-semibold shadow-sm'
-                  : 'text-notion-muted hover:text-notion-text'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5" strokeWidth={1.5} />
-              <span>Punch Kiosk</span>
-            </button>
+          {/* Main Content Area */}
+          <div className="flex-1 flex flex-col overflow-y-auto">
+            <main className="flex-1 flex flex-col justify-start">
+              {currentView === 'kiosk' && (
+                <StudentKiosk sessionTitle="Build Season" />
+              )}
+              {currentView === 'dashboard' && (
+                <AdminDashboard />
+              )}
+              {currentView === 'editor' && (
+                <HoursEditor onExit={() => setCurrentView('kiosk')} />
+              )}
+            </main>
 
-            <button
-              type="button"
-              onClick={() => setCurrentPage('database')}
-              className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded transition-all ${
-                currentPage === 'database'
-                  ? 'bg-white text-notion-text font-semibold shadow-sm'
-                  : 'text-notion-muted hover:text-notion-text'
-              }`}
-            >
-              <Database className="w-3.5 h-3.5" strokeWidth={1.5} />
-              <span>Database & Reports</span>
-              <span className="font-mono text-[10px] text-notion-muted">({entries.length})</span>
-            </button>
+            {/* Bottom Credits Bar (Matching screenshots) */}
+            <footer className="h-10 border-t border-[#27272a] bg-[#121215] px-6 flex items-center justify-between text-[11px] font-mono text-zinc-500 flex-shrink-0 z-30">
+              <div className="flex items-center gap-1.5">
+                <span>Made with</span>
+                <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 inline" />
+                <span>by</span>
+                <span className="text-zinc-300 underline underline-offset-4 decoration-zinc-600">
+                  Angad
+                </span>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <span className="text-zinc-600 hidden sm:inline">FRC Attendance System</span>
+                <a
+                  href="https://codeberg.org/tendulkar/attendance"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-zinc-500 hover:text-white transition-colors"
+                >
+                  <Github className="w-4 h-4" />
+                </a>
+              </div>
+            </footer>
           </div>
-
-          <button
-            type="button"
-            onClick={() => setIsRosterOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-notion-text border border-notion-border rounded hover:bg-notion-surface hover:border-notion-borderDark transition-colors"
-          >
-            <Users className="w-3.5 h-3.5 text-notion-muted" strokeWidth={1.5} />
-            <span>Team Roster ({members.length})</span>
-          </button>
         </div>
+      )}
 
-        {/* PAGE 1: SIGN IN KIOSK */}
-        {currentPage === 'kiosk' && (
-          <div className="space-y-6 py-4">
-            <div className="text-center space-y-2 max-w-lg mx-auto">
-              <div className="w-12 h-12 rounded border border-notion-border bg-notion-surface flex items-center justify-center text-notion-text mx-auto">
-                <Clock className="w-6 h-6" strokeWidth={1.5} />
-              </div>
-              <h1 className="text-2xl font-bold tracking-tight text-notion-text font-sans">
-                Attendance Kiosk
-              </h1>
-              <p className="text-xs text-notion-muted leading-relaxed">
-                Enter your 5-digit ID to instantly clock in or clock out. Only authorized Leads can unlock the terminal.
-              </p>
+      {/* Settings Modal */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs font-mono">
+          <div className="w-full max-w-md bg-[#1c1c1f] rounded-2xl border border-[#27272a] shadow-2xl p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-[#27272a] pb-3">
+              <h3 className="text-base font-bold text-white">System Settings</h3>
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(false)}
+                className="text-zinc-400 hover:text-white"
+              >
+                ✕
+              </button>
             </div>
 
-            <InstantPunchKiosk
-              isLocked={isLocked}
-              onPunchSuccess={handlePunchSuccess}
-            />
-          </div>
-        )}
-
-        {/* PAGE 2: DATABASE & REPORTS */}
-        {currentPage === 'database' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="space-y-4 text-xs">
               <div>
-                <h1 className="text-xl font-bold tracking-tight text-notion-text font-sans flex items-center gap-2">
-                  <Database className="w-5 h-5 text-notion-muted" strokeWidth={1.5} />
-                  Attendance Database
-                </h1>
-                <p className="text-xs text-notion-muted mt-0.5">
-                  View individual punch records or aggregated total hours by person. Click any header to sort.
-                </p>
+                <span className="text-zinc-400 block mb-1">Session Mode</span>
+                <div className="p-3 bg-[#121214] border border-[#27272a] rounded-xl text-white font-semibold">
+                  Build Season (Active)
+                </div>
               </div>
-              <div className="text-[11px] text-notion-muted font-mono bg-notion-surface px-2 py-1 rounded border border-notion-border">
-                Storage: SQLite / Turso
+
+              <div>
+                <span className="text-zinc-400 block mb-1">Database Provider</span>
+                <div className="p-3 bg-[#121214] border border-[#27272a] rounded-xl text-zinc-300">
+                  SQLite Local / Turso LibSQL (attendance.db)
+                </div>
+              </div>
+
+              <div>
+                <span className="text-zinc-400 block mb-1">Admin Passcode</span>
+                <div className="p-3 bg-[#121214] border border-[#27272a] rounded-xl text-zinc-300">
+                  Configured via LEAD_PIN (Default: 9999)
+                </div>
               </div>
             </div>
 
-            <TimesheetDatabase
-              entries={entries}
-              members={members}
-              isLoading={isLoading}
-              onRefresh={() => {
-                void fetchEntries();
-                void fetchMembers();
-              }}
-            />
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(false)}
+              className="w-full py-2.5 bg-white text-zinc-950 font-bold rounded-xl text-xs hover:bg-zinc-200 transition-colors"
+            >
+              Close
+            </button>
           </div>
-        )}
-      </div>
-
-      {/* Team Roster Directory Modal */}
-      <RosterDirectoryModal
-        isOpen={isRosterOpen}
-        onClose={() => setIsRosterOpen(false)}
-        members={members}
-        isLocked={isLocked}
-        onMemberAdded={() => {
-          void fetchMembers();
-        }}
-      />
+        </div>
+      )}
     </div>
   );
 };

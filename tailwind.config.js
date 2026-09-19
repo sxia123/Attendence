@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: ["class"],
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -7,25 +8,54 @@ export default {
   theme: {
     extend: {
       colors: {
-        notion: {
-          bg: "#FFFFFF",
-          surface: "#F7F6F5",
-          hover: "#EFEFED",
-          border: "#E9E9E8",
-          borderDark: "#D3D3D0",
-          text: "#37352F",
-          muted: "#787774",
-          subtle: "#9B9A97",
-          tagGray: "#F1F1EF",
-          tagGrayText: "#5A5A58",
-          tagBlue: "#E7F3F8",
-          tagBlueText: "#28456C",
-          tagGreen: "#EDF3EC",
-          tagGreenText: "#2B593F",
-          tagAmber: "#FBEDD6",
-          tagAmberText: "#89632A",
-          tagRed: "#FBE4E4",
-          tagRedText: "#932C2C",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        // Direct hex helpers matching the screenshots exactly
+        zinc: {
+          950: "#09090b",
+          900: "#121215",
+          850: "#18181b",
+          800: "#222226",
+          750: "#27272a",
+          700: "#3f3f46",
+          600: "#52525b",
+          500: "#71717a",
+          400: "#a1a1aa",
+          300: "#d4d4d8",
+          200: "#e4e4e7",
+          100: "#f4f4f5",
+          50: "#fafafa",
         },
       },
       fontFamily: {
@@ -33,20 +63,25 @@ export default {
           "-apple-system",
           "BlinkMacSystemFont",
           '"Segoe UI"',
-          "Helvetica",
-          '"Apple Color Emoji"',
+          "Roboto",
+          '"Helvetica Neue"',
           "Arial",
           "sans-serif",
         ],
         mono: [
           '"SFMono-Regular"',
           "Menlo",
+          "Monaco",
           "Consolas",
-          '"PT Mono"',
           '"Liberation Mono"',
-          "Courier",
+          '"Courier New"',
           "monospace",
         ],
+      },
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
       },
     },
   },

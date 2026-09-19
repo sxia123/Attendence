@@ -17,181 +17,68 @@ initDb().catch((err: unknown) => {
   process.stderr.write(`Fatal DB error: ${err instanceof Error ? err.message : String(err)}\n`);
 });
 
-// GET /api/terminal/status
-app.get('/api/terminal/status', async (_req: Request, res: Response): Promise<void> => {
+// Helper: Get developer passcode from DB or environment
+async function getDeveloperCode(): Promise<string> {
   try {
-    const result = await db.execute({
-      sql: 'SELECT value FROM settings WHERE key = ?',
-      args: ['terminal_locked'],
-    });
-
-    const isLocked = result.rows.length > 0 && result.rows[0]?.value === '1';
-    res.json({ isLocked });
-  } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Database error' });
-  }
-});
-
-// POST /api/terminal/unlock
-app.post('/api/terminal/unlock', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { pin } = req.body as { pin?: string };
-    if (!pin) {
-      res.status(400).json({ error: 'PIN or Lead ID is required' });
-      return;
-    }
-
-    const pinSetting = await db.execute({
+    const res = await db.execute({
       sql: 'SELECT value FROM settings WHERE key = ?',
       args: ['lead_pin'],
     });
-    const correctPin = (pinSetting.rows[0]?.value as string) || '9999';
-
-    // Check if the pin matches lead_pin OR if it's the 5-digit ID of a Lead
-    let isAuthorized = pin.trim() === correctPin.trim();
-
-    if (!isAuthorized) {
-      const leadMember = await db.execute({
-        sql: 'SELECT id, name FROM members WHERE id = ? AND role = ?',
-        args: [pin.trim(), 'lead'],
-      });
-      if (leadMember.rows.length > 0) {
-        isAuthorized = true;
-      }
+    if (res.rows.length > 0 && res.rows[0]?.value) {
+      return String(res.rows[0].value).trim();
     }
-
-    if (!isAuthorized) {
-      res.status(401).json({ error: 'Invalid Lead PIN or Lead ID' });
-      return;
-    }
-
-    await db.execute({
-      sql: 'UPDATE settings SET value = ? WHERE key = ?',
-      args: ['0', 'terminal_locked'],
-    });
-
-    res.json({ success: true, isLocked: false });
-  } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Unlock failed' });
+  } catch {
+    // fallback below
   }
-});
+  return (process.env.DEVELOPER_PASSCODE || process.env.LEAD_PIN || '9999').trim();
+}
 
-// POST /api/terminal/lock
-app.post('/api/terminal/lock', async (_req: Request, res: Response): Promise<void> => {
-  try {
-    await db.execute({
-      sql: 'UPDATE settings SET value = ? WHERE key = ?',
-      args: ['1', 'terminal_locked'],
-    });
-    res.json({ success: true, isLocked: true });
-  } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Lock failed' });
-  }
-});
+// ==========================================
+// 1. STUDENT KIOSK ENDPOINTS (SIMPLE & FAST)
+// ==========================================
 
-// GET /api/members
-app.get('/api/members', async (_req: Request, res: Response): Promise<void> => {
-  try {
-    const result = await db.execute('SELECT id, name, role, is_clocked_in, active_session_start FROM members ORDER BY name ASC');
-    const members = result.rows.map((row) => ({
-      id: String(row.id),
-      name: String(row.name),
-      role: String(row.role) as 'member' | 'lead',
-      isClockedIn: Boolean(row.is_clocked_in),
-      activeSessionStart: row.active_session_start ? String(row.active_session_start) : undefined,
-    }));
-    res.json(members);
-  } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to fetch members' });
-  }
-});
-
-// POST /api/members
-app.post('/api/members', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id, name, role } = req.body as { id?: string; name?: string; role?: string };
-
-    if (!id || !/^\d{5}$/.test(id.trim())) {
-      res.status(400).json({ error: 'Member ID must be exactly 5 numeric digits (e.g. 10402)' });
-      return;
-    }
-
-    if (!name || name.trim().length === 0) {
-      res.status(400).json({ error: 'Member name is required' });
-      return;
-    }
-
-    const memberRole = role === 'lead' ? 'lead' : 'member';
-
-    const existing = await db.execute({
-      sql: 'SELECT id FROM members WHERE id = ?',
-      args: [id.trim()],
-    });
-
-    if (existing.rows.length > 0) {
-      res.status(409).json({ error: `Member with ID ${id.trim()} already exists` });
-      return;
-    }
-
-    await db.execute({
-      sql: 'INSERT INTO members (id, name, role, is_clocked_in) VALUES (?, ?, ?, 0)',
-      args: [id.trim(), name.trim(), memberRole],
-    });
-
-    res.status(201).json({
-      id: id.trim(),
-      name: name.trim(),
-      role: memberRole,
-      isClockedIn: false,
-    });
-  } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to create member' });
-  }
-});
-
-// POST /api/punch (Instant Punch-In or Punch-Out)
+// POST /api/punch - Sign In or Sign Out with 5-digit Student ID
 app.post('/api/punch', async (req: Request, res: Response): Promise<void> => {
   try {
-    // 1. Verify terminal lock status
-    const lockCheck = await db.execute({
-      sql: 'SELECT value FROM settings WHERE key = ?',
-      args: ['terminal_locked'],
-    });
-    if (lockCheck.rows.length > 0 && lockCheck.rows[0]?.value === '1') {
-      res.status(403).json({ error: 'Terminal is locked. An authorized Lead must unlock it to record hours.' });
-      return;
-    }
-
     const { id } = req.body as { id?: string };
-    if (!id || id.trim().length === 0) {
-      res.status(400).json({ error: 'Member ID is required' });
+    if (!id || typeof id !== 'string') {
+      res.status(400).json({ error: 'Please enter your 5-digit Student ID.' });
       return;
     }
 
     const cleanId = id.trim();
-
-    // 2. Fetch member
-    const memberResult = await db.execute({
-      sql: 'SELECT id, name, role, is_clocked_in, active_session_start FROM members WHERE id = ?',
-      args: [cleanId],
-    });
-
-    if (memberResult.rows.length === 0) {
-      res.status(404).json({ error: `ID ${cleanId} is not recognized. Please check your 5-digit ID.` });
+    if (!/^\d{5}$/.test(cleanId)) {
+      res.status(400).json({ error: 'Student ID must be exactly 5 numbers.' });
       return;
     }
 
-    const member = memberResult.rows[0];
-    const isClockedIn = Boolean(member.is_clocked_in);
-    const nowIso = new Date().toISOString();
-    const dateStr = nowIso.slice(0, 10);
+    // Look up student
+    const studentResult = await db.execute({
+      sql: 'SELECT id, name, is_clocked_in, active_session_start FROM members WHERE id = ?',
+      args: [cleanId],
+    });
+
+    if (studentResult.rows.length === 0) {
+      res.status(404).json({
+        error: `Student ID "${cleanId}" was not found. Please ask your teacher or administrator to add you.`,
+      });
+      return;
+    }
+
+    const student = studentResult.rows[0];
+    const isClockedIn = Boolean(student.is_clocked_in);
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const dateStr = nowIso.slice(0, 10); // YYYY-MM-DD
 
     if (!isClockedIn) {
-      // Clock IN
+      // -----------------
+      // SIGN IN (Clock In)
+      // -----------------
       const entryId = crypto.randomUUID();
       await db.execute({
         sql: 'INSERT INTO attendance_entries (id, member_id, member_name, date, time_in, status) VALUES (?, ?, ?, ?, ?, ?)',
-        args: [entryId, cleanId, String(member.name), dateStr, nowIso, 'active'],
+        args: [entryId, cleanId, String(student.name), dateStr, nowIso, 'active'],
       });
 
       await db.execute({
@@ -201,22 +88,28 @@ app.post('/api/punch', async (req: Request, res: Response): Promise<void> => {
 
       res.json({
         action: 'clock_in',
-        member: {
+        student: {
           id: cleanId,
-          name: String(member.name),
+          name: String(student.name),
         },
         timeIn: nowIso,
       });
     } else {
-      // Clock OUT
+      // ------------------
+      // SIGN OUT (Clock Out)
+      // ------------------
       const activeEntryResult = await db.execute({
         sql: "SELECT id, time_in FROM attendance_entries WHERE member_id = ? AND status = 'active' ORDER BY time_in DESC LIMIT 1",
         args: [cleanId],
       });
 
-      const startTime = activeEntryResult.rows[0]?.time_in ? String(activeEntryResult.rows[0].time_in) : String(member.active_session_start);
+      const startTime = activeEntryResult.rows[0]?.time_in
+        ? String(activeEntryResult.rows[0].time_in)
+        : String(student.active_session_start || nowIso);
+
       const startMs = new Date(startTime).getTime();
-      const endMs = new Date(nowIso).getTime();
+      const endMs = now.getTime();
+      // Calculate duration in minutes (minimum 1 minute)
       const durationMinutes = Math.max(1, Math.round((endMs - startMs) / 60000));
 
       if (activeEntryResult.rows.length > 0 && activeEntryResult.rows[0]?.id) {
@@ -225,11 +118,10 @@ app.post('/api/punch', async (req: Request, res: Response): Promise<void> => {
           args: [nowIso, durationMinutes, String(activeEntryResult.rows[0].id)],
         });
       } else {
-        // Fallback: create completed entry
         const entryId = crypto.randomUUID();
         await db.execute({
           sql: "INSERT INTO attendance_entries (id, member_id, member_name, date, time_in, time_out, duration_minutes, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'completed')",
-          args: [entryId, cleanId, String(member.name), dateStr, startTime, nowIso, durationMinutes],
+          args: [entryId, cleanId, String(student.name), dateStr, startTime, nowIso, durationMinutes],
         });
       }
 
@@ -238,39 +130,175 @@ app.post('/api/punch', async (req: Request, res: Response): Promise<void> => {
         args: [cleanId],
       });
 
+      const hours = Math.floor(durationMinutes / 60);
+      const remainingMinutes = durationMinutes % 60;
+      const durationFormatted = hours > 0 ? `${hours}h ${remainingMinutes}m` : `${remainingMinutes}m`;
+
       res.json({
         action: 'clock_out',
-        member: {
+        student: {
           id: cleanId,
-          name: String(member.name),
+          name: String(student.name),
         },
         timeIn: startTime,
         timeOut: nowIso,
         durationMinutes,
+        durationFormatted,
       });
     }
   } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Punch action failed' });
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to record attendance.' });
   }
 });
 
-// GET /api/entries
-app.get('/api/entries', async (req: Request, res: Response): Promise<void> => {
+// ==========================================
+// 2. DEVELOPER / CREATOR / ADMIN ENDPOINTS
+// ==========================================
+
+// POST /api/developer/verify - Check developer passcode
+app.post('/api/developer/verify', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { search, status, date } = req.query as { search?: string; status?: string; date?: string };
-
-    let query = 'SELECT id, member_id, member_name, date, time_in, time_out, duration_minutes, status FROM attendance_entries WHERE 1=1';
-    const args: (string | number)[] = [];
-
-    if (search && search.trim() !== '') {
-      query += ' AND (member_name LIKE ? OR member_id LIKE ?)';
-      const term = `%${search.trim()}%`;
-      args.push(term, term);
+    const { code } = req.body as { code?: string };
+    if (!code) {
+      res.status(400).json({ error: 'Please enter the developer code.' });
+      return;
     }
 
-    if (status && status !== 'all') {
-      query += ' AND status = ?';
-      args.push(status);
+    const expectedCode = await getDeveloperCode();
+    if (code.trim() !== expectedCode) {
+      res.status(401).json({ error: 'Incorrect developer code. Access denied.' });
+      return;
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Verification failed' });
+  }
+});
+
+// GET /api/developer/students - Get all students with accumulated total hours across all days
+app.get('/api/developer/students', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    // 1. Fetch all students
+    const studentsResult = await db.execute('SELECT id, name, is_clocked_in, active_session_start FROM members ORDER BY name ASC');
+
+    // 2. Sum completed attendance duration_minutes for each student across all days
+    const totalsResult = await db.execute(`
+      SELECT member_id, SUM(duration_minutes) as total_minutes, COUNT(*) as sessions_count
+      FROM attendance_entries
+      WHERE status = 'completed' AND duration_minutes IS NOT NULL
+      GROUP BY member_id
+    `);
+
+    const totalsMap = new Map<string, { totalMinutes: number; sessionsCount: number }>();
+    for (const row of totalsResult.rows) {
+      totalsMap.set(String(row.member_id), {
+        totalMinutes: Number(row.total_minutes || 0),
+        sessionsCount: Number(row.sessions_count || 0),
+      });
+    }
+
+    const students = studentsResult.rows.map((row) => {
+      const studentId = String(row.id);
+      const studentTotal = totalsMap.get(studentId) || { totalMinutes: 0, sessionsCount: 0 };
+      const mins = studentTotal.totalMinutes;
+      const hours = Math.floor(mins / 60);
+      const remMins = mins % 60;
+      const totalHoursFormatted = `${hours}h ${remMins}m`;
+
+      return {
+        id: studentId,
+        name: String(row.name),
+        isClockedIn: Boolean(row.is_clocked_in),
+        activeSessionStart: row.active_session_start ? String(row.active_session_start) : undefined,
+        totalMinutes: mins,
+        totalHoursFormatted,
+        sessionsCount: studentTotal.sessionsCount,
+      };
+    });
+
+    res.json(students);
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to fetch students' });
+  }
+});
+
+// POST /api/developer/students - Add a new student
+app.post('/api/developer/students', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id, name } = req.body as { id?: string; name?: string };
+
+    if (!id || !/^\d{5}$/.test(id.trim())) {
+      res.status(400).json({ error: 'Student ID must be exactly 5 digits (for example: 10402).' });
+      return;
+    }
+
+    if (!name || name.trim().length === 0) {
+      res.status(400).json({ error: 'Please provide the student’s name.' });
+      return;
+    }
+
+    const cleanId = id.trim();
+    const cleanName = name.trim();
+
+    // Check if ID already exists
+    const existing = await db.execute({
+      sql: 'SELECT id, name FROM members WHERE id = ?',
+      args: [cleanId],
+    });
+
+    if (existing.rows.length > 0) {
+      res.status(409).json({ error: `A student with ID ${cleanId} already exists (${existing.rows[0]?.name}).` });
+      return;
+    }
+
+    await db.execute({
+      sql: 'INSERT INTO members (id, name, role, is_clocked_in) VALUES (?, ?, ?, 0)',
+      args: [cleanId, cleanName, 'member'],
+    });
+
+    res.status(201).json({
+      id: cleanId,
+      name: cleanName,
+      isClockedIn: false,
+      totalMinutes: 0,
+      totalHoursFormatted: '0h 0m',
+      sessionsCount: 0,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to add student.' });
+  }
+});
+
+// DELETE /api/developer/students/:id - Remove a student
+app.delete('/api/developer/students/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    await db.execute({
+      sql: 'DELETE FROM attendance_entries WHERE member_id = ?',
+      args: [id],
+    });
+    await db.execute({
+      sql: 'DELETE FROM members WHERE id = ?',
+      args: [id],
+    });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to delete student.' });
+  }
+});
+
+// GET /api/developer/entries - Get attendance log entries
+app.get('/api/developer/entries', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { studentId, date } = req.query as { studentId?: string; date?: string };
+
+    let query = 'SELECT id, member_id, member_name, date, time_in, time_out, duration_minutes, status, note FROM attendance_entries WHERE 1=1';
+    const args: string[] = [];
+
+    if (studentId && studentId.trim() !== '') {
+      query += ' AND member_id = ?';
+      args.push(studentId.trim());
     }
 
     if (date && date.trim() !== '') {
@@ -278,34 +306,182 @@ app.get('/api/entries', async (req: Request, res: Response): Promise<void> => {
       args.push(date.trim());
     }
 
-    query += ' ORDER BY time_in DESC LIMIT 200';
+    query += ' ORDER BY time_in DESC LIMIT 500';
 
     const result = await db.execute({ sql: query, args });
 
     const entries = result.rows.map((row) => ({
       id: String(row.id),
-      memberId: String(row.member_id),
-      memberName: String(row.member_name),
+      studentId: String(row.member_id),
+      studentName: String(row.member_name),
       date: String(row.date),
       timeIn: String(row.time_in),
       timeOut: row.time_out ? String(row.time_out) : undefined,
       durationMinutes: row.duration_minutes !== null ? Number(row.duration_minutes) : undefined,
       status: String(row.status) as 'active' | 'completed',
+      note: row.note ? String(row.note) : undefined,
     }));
 
     res.json(entries);
   } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to fetch entries' });
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to fetch attendance history.' });
   }
 });
 
-// GET /api/export/csv
-app.get('/api/export/csv', async (_req: Request, res: Response): Promise<void> => {
+// POST /api/developer/adjust-hours - Add or change hours for a student
+app.post('/api/developer/adjust-hours', async (req: Request, res: Response): Promise<void> => {
   try {
-    const result = await db.execute('SELECT date, member_name, member_id, time_in, time_out, duration_minutes, status FROM attendance_entries ORDER BY time_in DESC');
+    const { studentId, minutes, date, note } = req.body as {
+      studentId?: string;
+      minutes?: number;
+      date?: string;
+      note?: string;
+    };
 
-    const headers = ['Date', 'Name', 'ID', 'Time In', 'Time Out', 'Duration (HH:MM)', 'Duration (Minutes)', 'Status'];
-    const rows = result.rows.map((r) => {
+    if (!studentId) {
+      res.status(400).json({ error: 'Student ID is required.' });
+      return;
+    }
+
+    if (typeof minutes !== 'number' || minutes === 0) {
+      res.status(400).json({ error: 'Please specify the minutes to adjust (e.g. 60 for 1 hour).' });
+      return;
+    }
+
+    // Lookup student
+    const studentRes = await db.execute({
+      sql: 'SELECT id, name FROM members WHERE id = ?',
+      args: [studentId.trim()],
+    });
+
+    if (studentRes.rows.length === 0) {
+      res.status(404).json({ error: 'Student not found.' });
+      return;
+    }
+
+    const student = studentRes.rows[0];
+    const nowIso = new Date().toISOString();
+    const entryDate = (date && date.trim()) || nowIso.slice(0, 10);
+    const entryId = crypto.randomUUID();
+    const adjustmentNote = (note && note.trim()) || 'Manual hours adjustment by developer';
+
+    await db.execute({
+      sql: `INSERT INTO attendance_entries (id, member_id, member_name, date, time_in, time_out, duration_minutes, status, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?)`,
+      args: [entryId, String(student.id), String(student.name), entryDate, nowIso, nowIso, minutes, adjustmentNote],
+    });
+
+    res.json({
+      success: true,
+      entry: {
+        id: entryId,
+        studentId: String(student.id),
+        studentName: String(student.name),
+        date: entryDate,
+        durationMinutes: minutes,
+        note: adjustmentNote,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to adjust hours.' });
+  }
+});
+
+// PUT /api/developer/entries/:id - Edit an individual attendance entry
+app.put('/api/developer/entries/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { durationMinutes, date, note } = req.body as {
+      durationMinutes?: number;
+      date?: string;
+      note?: string;
+    };
+
+    const updates: string[] = [];
+    const args: (string | number)[] = [];
+
+    if (typeof durationMinutes === 'number') {
+      updates.push('duration_minutes = ?');
+      args.push(durationMinutes);
+    }
+    if (date && date.trim()) {
+      updates.push('date = ?');
+      args.push(date.trim());
+    }
+    if (note !== undefined) {
+      updates.push('note = ?');
+      args.push(note.trim());
+    }
+
+    if (updates.length === 0) {
+      res.status(400).json({ error: 'No fields provided to update.' });
+      return;
+    }
+
+    args.push(id);
+    await db.execute({
+      sql: `UPDATE attendance_entries SET ${updates.join(', ')} WHERE id = ?`,
+      args,
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to update entry.' });
+  }
+});
+
+// DELETE /api/developer/entries/:id - Delete an attendance record
+app.delete('/api/developer/entries/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    await db.execute({
+      sql: 'DELETE FROM attendance_entries WHERE id = ?',
+      args: [id],
+    });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to delete entry.' });
+  }
+});
+
+// GET /api/developer/export-csv - Download clean attendance CSV report
+app.get('/api/developer/export-csv', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    // 1. Student totals across all days
+    const studentsResult = await db.execute('SELECT id, name FROM members ORDER BY name ASC');
+    const totalsResult = await db.execute(`
+      SELECT member_id, SUM(duration_minutes) as total_minutes, COUNT(*) as sessions_count
+      FROM attendance_entries
+      WHERE status = 'completed' AND duration_minutes IS NOT NULL
+      GROUP BY member_id
+    `);
+
+    const totalsMap = new Map<string, number>();
+    for (const row of totalsResult.rows) {
+      totalsMap.set(String(row.member_id), Number(row.total_minutes || 0));
+    }
+
+    // 2. All attendance entries
+    const entriesResult = await db.execute('SELECT date, member_name, member_id, time_in, time_out, duration_minutes, status, note FROM attendance_entries ORDER BY time_in DESC');
+
+    const lines: string[] = [];
+
+    // Summary section
+    lines.push('=== TOTAL ACCUMULATED HOURS ACROSS ALL DAYS ===');
+    lines.push('Student Name,Student ID,Total Minutes,Total Hours (HH:MM)');
+    for (const s of studentsResult.rows) {
+      const sId = String(s.id);
+      const mins = totalsMap.get(sId) || 0;
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      lines.push(`"${String(s.name).replace(/"/g, '""')}","${sId}",${mins},"${h}h ${m}m"`);
+    }
+
+    lines.push('');
+    lines.push('=== DETAILED ATTENDANCE LOG ===');
+    lines.push('Date,Student Name,Student ID,Sign In Time,Sign Out Time,Duration (Minutes),Duration (Formatted),Status,Note');
+
+    for (const r of entriesResult.rows) {
       const mins = r.duration_minutes !== null ? Number(r.duration_minutes) : 0;
       const hours = Math.floor(mins / 60);
       const remainingMins = mins % 60;
@@ -314,31 +490,47 @@ app.get('/api/export/csv', async (_req: Request, res: Response): Promise<void> =
       const formatTime = (iso?: unknown): string => {
         if (!iso) return '';
         try {
-          return new Date(String(iso)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          return new Date(String(iso)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         } catch {
           return String(iso);
         }
       };
 
-      return [
+      lines.push([
         `"${String(r.date)}"`,
         `"${String(r.member_name).replace(/"/g, '""')}"`,
         `"${String(r.member_id)}"`,
         `"${formatTime(r.time_in)}"`,
         `"${formatTime(r.time_out)}"`,
-        `"${formattedDuration}"`,
         mins,
+        `"${formattedDuration}"`,
         `"${String(r.status)}"`,
-      ].join(',');
-    });
+        `"${String(r.note || '').replace(/"/g, '""')}"`,
+      ].join(','));
+    }
 
-    const csvContent = [headers.join(','), ...rows].join('\n');
-
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="attendance-report-${new Date().toISOString().slice(0, 10)}.csv"`);
+    const csvContent = lines.join('\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="student-attendance-${new Date().toISOString().slice(0, 10)}.csv"`);
     res.send(csvContent);
   } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : 'CSV export failed' });
+    res.status(500).json({ error: error instanceof Error ? error.message : 'CSV export failed.' });
+  }
+});
+
+// Backward compatibility helper for /api/members (used if any legacy call exists)
+app.get('/api/members', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await db.execute('SELECT id, name, is_clocked_in, active_session_start FROM members ORDER BY name ASC');
+    const members = result.rows.map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      isClockedIn: Boolean(row.is_clocked_in),
+      activeSessionStart: row.active_session_start ? String(row.active_session_start) : undefined,
+    }));
+    res.json(members);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch members' });
   }
 });
 

@@ -1,29 +1,37 @@
-export interface Member {
+export interface Student {
   id: string; // 5 digits (e.g., "10101")
   name: string;
-  role: 'member' | 'lead';
   isClockedIn: boolean;
   activeSessionStart?: string;
+  totalMinutes: number;
+  totalHoursFormatted: string;
+  sessionsCount?: number;
 }
 
 export interface AttendanceEntry {
   id: string;
-  memberId: string;
-  memberName: string;
+  studentId: string;
+  studentName: string;
   date: string; // YYYY-MM-DD
   timeIn: string; // ISO string
   timeOut?: string; // ISO string
   durationMinutes?: number;
   status: 'active' | 'completed';
+  note?: string;
 }
 
 export interface PunchResponse {
   action: 'clock_in' | 'clock_out';
-  member: {
+  student: {
     id: string;
     name: string;
   };
   timeIn?: string;
   timeOut?: string;
   durationMinutes?: number;
+  durationFormatted?: string;
+  error?: string;
 }
+
+// Legacy alias for smooth transition
+export type Member = Student;

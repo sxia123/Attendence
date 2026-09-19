@@ -38,9 +38,17 @@ export async function initDb(): Promise<void> {
         time_out TEXT,
         duration_minutes INTEGER,
         status TEXT NOT NULL,
+        note TEXT,
         FOREIGN KEY (member_id) REFERENCES members(id)
       );
     `);
+
+    // Migration check: add note column if it doesn't exist yet in older tables
+    try {
+      await db.execute('ALTER TABLE attendance_entries ADD COLUMN note TEXT');
+    } catch {
+      // Column already exists or table freshly created
+    }
 
     await db.execute(`
       CREATE TABLE IF NOT EXISTS settings (
