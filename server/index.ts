@@ -518,6 +518,176 @@ app.get('/api/developer/export-csv', async (_req: Request, res: Response): Promi
   }
 });
 
+// Helper: Parse a CSV line taking quotes into account
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+// POST /api/developer/import-csv - Import students & hours from CSV
+app.post('/api/developer/import-csv', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { csv } = req.body as { csv?: string };
+    if (!csv || typeof csv !== 'string' || !csv.trim()) {
+      res.status(400).json({ error: 'Please provide CSV content to import.' });
+      return;
+    }
+
+    const lines = csv.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+    if (lines.length < 2) {
+      res.status(400).json({ error: 'CSV file must have at least a header row and one data row.' });
+      return;
+    }
+
+    // Skip comment lines if any (e.g. === TOTAL ACCUMULATED HOURS ===)
+    let headerIndex = 0;
+    while (headerIndex < lines.length && lines[headerIndex].startsWith('===')) {
+      headerIndex++;
+    }
+
+    if (headerIndex >= lines.length) {
+      res.status(400).json({ error: 'No valid header row found in CSV.' });
+      return;
+    }
+
+    const rawHeaders = parseCsvLine(lines[headerIndex]);
+    const normalizedHeaders = rawHeaders.map((h) => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+
+    // Find column indexes
+    const idIndex = normalizedHeaders.findIndex((h) =>
+      ['id', 'studentid', 'memberid'].includes(h)
+    );
+    const nameIndex = normalizedHeaders.findIndex((h) =>
+      ['name', 'studentname', 'membername', 'fullname'].includes(h)
+    );
+    const hoursIndex = normalizedHeaders.findIndex((h) =>
+      ['hours', 'totalhours', 'durationhours'].includes(h)
+    );
+    const minutesIndex = normalizedHeaders.findIndex((h) =>
+      ['minutes', 'totalminutes', 'durationminutes', 'duration'].includes(h)
+    );
+    const dateIndex = normalizedHeaders.findIndex((h) =>
+      ['date', 'sessiondate'].includes(h)
+    );
+    const noteIndex = normalizedHeaders.findIndex((h) =>
+      ['note', 'notes', 'category'].includes(h)
+    );
+
+    if (idIndex === -1 && nameIndex === -1) {
+      res.status(400).json({
+        error: 'CSV must contain at least "Student ID" and "Student Name" columns.',
+      });
+      return;
+    }
+
+    let studentsCreated = 0;
+    let studentsUpdated = 0;
+    let entriesAdded = 0;
+    const errors: string[] = [];
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const nowIso = new Date().toISOString();
+
+    for (let i = headerIndex + 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.startsWith('===') || line.trim() === '') continue;
+
+      const cells = parseCsvLine(line);
+      const rawId = idIndex !== -1 ? cells[idIndex] : '';
+      const rawName = nameIndex !== -1 ? cells[nameIndex] : '';
+
+      // Clean ID to numeric
+      const cleanId = rawId ? rawId.replace(/\D/g, '') : '';
+      const cleanName = rawName ? rawName.trim().replace(/^"|"$/g, '') : '';
+
+      if (!cleanId || cleanId.length !== 5) {
+        errors.push(`Row ${i + 1}: Invalid ID "${rawId}" (must be 5 digits).`);
+        continue;
+      }
+
+      if (!cleanName) {
+        errors.push(`Row ${i + 1}: Missing student name.`);
+        continue;
+      }
+
+      // Check if student exists
+      const existing = await db.execute({
+        sql: 'SELECT id, name FROM members WHERE id = ?',
+        args: [cleanId],
+      });
+
+      if (existing.rows.length === 0) {
+        await db.execute({
+          sql: 'INSERT INTO members (id, name, role, is_clocked_in) VALUES (?, ?, ?, 0)',
+          args: [cleanId, cleanName, 'member'],
+        });
+        studentsCreated++;
+      } else {
+        if (existing.rows[0].name !== cleanName) {
+          await db.execute({
+            sql: 'UPDATE members SET name = ? WHERE id = ?',
+            args: [cleanName, cleanId],
+          });
+          studentsUpdated++;
+        }
+      }
+
+      // Check if row has hours or minutes to add
+      let durationMinutes = 0;
+      if (minutesIndex !== -1 && cells[minutesIndex]) {
+        durationMinutes = parseInt(cells[minutesIndex].replace(/[^\d.-]/g, ''), 10) || 0;
+      } else if (hoursIndex !== -1 && cells[hoursIndex]) {
+        const hrs = parseFloat(cells[hoursIndex].replace(/[^\d.-]/g, '')) || 0;
+        durationMinutes = Math.round(hrs * 60);
+      }
+
+      if (durationMinutes > 0) {
+        const entryDate = dateIndex !== -1 && cells[dateIndex] ? cells[dateIndex].trim() : todayStr;
+        const note = noteIndex !== -1 && cells[noteIndex] ? cells[noteIndex].trim() : 'CSV Import';
+        const entryId = crypto.randomUUID();
+
+        await db.execute({
+          sql: `INSERT INTO attendance_entries (id, member_id, member_name, date, time_in, time_out, duration_minutes, status, note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?)`,
+          args: [entryId, cleanId, cleanName, entryDate, nowIso, nowIso, durationMinutes, note],
+        });
+        entriesAdded++;
+      }
+    }
+
+    res.json({
+      success: true,
+      studentsCreated,
+      studentsUpdated,
+      entriesAdded,
+      totalProcessed: lines.length - (headerIndex + 1),
+      errors,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'CSV import failed.' });
+  }
+});
+
 // Backward compatibility helper for /api/members (used if any legacy call exists)
 app.get('/api/members', async (_req: Request, res: Response): Promise<void> => {
   try {

@@ -3,6 +3,7 @@ import { Student, AttendanceEntry } from '../types/attendance';
 import {
   LogOut,
   Download,
+  Upload,
   UserPlus,
   CalendarPlus,
   Trash2,
@@ -14,6 +15,11 @@ import {
   ArrowDown,
   RotateCcw,
   Trophy,
+  FileText,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  X,
 } from 'lucide-react';
 
 interface HoursEditorProps {
@@ -55,6 +61,21 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
   const [newStudentName, setNewStudentName] = useState<string>('');
   const [newStudentId, setNewStudentId] = useState<string>('');
   const [addStudentError, setAddStudentError] = useState<string | null>(null);
+
+  // CSV Import states
+  const [isImportCsvOpen, setIsImportCsvOpen] = useState<boolean>(false);
+  const [importMode, setImportMode] = useState<'upload' | 'paste'>('upload');
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importCsvText, setImportCsvText] = useState<string>('');
+  const [importLoading, setImportLoading] = useState<boolean>(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<{
+    studentsCreated: number;
+    studentsUpdated: number;
+    entriesAdded: number;
+    totalProcessed: number;
+    errors: string[];
+  } | null>(null);
 
   // Time picker state inside edit session modal
   const [editInHour, setEditInHour] = useState<string>('05');
@@ -382,6 +403,93 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
     }
   };
 
+  // CSV Import handlers
+  const handleDownloadSampleCsv = (): void => {
+    const sampleContent = `Student ID,Student Name,Total Hours,Date\n10101,Alex Rivera,3.5,${todayStr}\n10102,Sarah Chen,4.0,${todayStr}\n10103,Marcus Johnson,2.0,${todayStr}\n`;
+    const blob = new Blob([sampleContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'student_attendance_sample.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    const file = e.target.files?.[0] || null;
+    setImportFile(file);
+    setImportError(null);
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = (event.target?.result as string) || '';
+        setImportCsvText(text);
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const handleImportSubmit = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault();
+    setImportError(null);
+    setImportResult(null);
+
+    let csvContent = importCsvText.trim();
+    if (!csvContent && importFile) {
+      try {
+        csvContent = (await importFile.text()).trim();
+      } catch {
+        setImportError('Failed to read selected CSV file.');
+        return;
+      }
+    }
+
+    if (!csvContent) {
+      setImportError('Please choose a CSV file or paste CSV content.');
+      return;
+    }
+
+    setImportLoading(true);
+    try {
+      const res = await fetch('/api/developer/import-csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv: csvContent }),
+      });
+
+      const data = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        studentsCreated?: number;
+        studentsUpdated?: number;
+        entriesAdded?: number;
+        totalProcessed?: number;
+        errors?: string[];
+      };
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to import CSV.');
+      }
+
+      setImportResult({
+        studentsCreated: data.studentsCreated || 0,
+        studentsUpdated: data.studentsUpdated || 0,
+        entriesAdded: data.entriesAdded || 0,
+        totalProcessed: data.totalProcessed || 0,
+        errors: data.errors || [],
+      });
+
+      void fetchStudents();
+      void fetchEntries();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Error importing CSV');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col w-full h-full select-none text-zinc-100 p-6 overflow-hidden">
       {/* Top Action Bar */}
@@ -414,6 +522,21 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
           <Download className="w-3.5 h-3.5" />
           <span>Download Spreadsheet (CSV)</span>
         </a>
+
+        <button
+          type="button"
+          onClick={() => {
+            setIsImportCsvOpen(true);
+            setImportResult(null);
+            setImportError(null);
+            setImportCsvText('');
+            setImportFile(null);
+          }}
+          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-[#27272a] bg-[#1c1c1f] text-zinc-300 hover:text-white font-mono text-xs transition-colors hover:border-cyan-500/50"
+        >
+          <Upload className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Import CSV</span>
+        </button>
 
         <button
           type="button"
@@ -986,6 +1109,239 @@ export const HoursEditor: React.FC<HoursEditorProps> = ({ onExit, onGoToLeaderbo
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: IMPORT CSV */}
+      {/* ======================================================== */}
+      {isImportCsvOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in font-mono">
+          <div className="w-full max-w-xl bg-[#1c1c1f] rounded-2xl border border-[#27272a] shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Upload className="w-5 h-5 text-cyan-400" />
+                  <h3 className="text-base font-bold text-white">Import CSV</h3>
+                </div>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Import student rosters and optional attendance hours from a spreadsheet.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsImportCsvOpen(false)}
+                className="text-zinc-500 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Success Result Display */}
+            {importResult && (
+              <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-800/80 text-emerald-300 text-xs space-y-3">
+                <div className="flex items-center gap-2 font-bold text-emerald-200">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span>Import Completed Successfully!</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center font-sans">
+                  <div className="bg-emerald-950/60 p-2 rounded-lg border border-emerald-800/40">
+                    <div className="text-xl font-bold text-white">{importResult.studentsCreated}</div>
+                    <div className="text-[10px] text-emerald-400 font-mono">New Students</div>
+                  </div>
+                  <div className="bg-emerald-950/60 p-2 rounded-lg border border-emerald-800/40">
+                    <div className="text-xl font-bold text-white">{importResult.studentsUpdated}</div>
+                    <div className="text-[10px] text-emerald-400 font-mono">Updated Names</div>
+                  </div>
+                  <div className="bg-emerald-950/60 p-2 rounded-lg border border-emerald-800/40">
+                    <div className="text-xl font-bold text-white">{importResult.entriesAdded}</div>
+                    <div className="text-[10px] text-emerald-400 font-mono">Hours Logged</div>
+                  </div>
+                </div>
+
+                {importResult.errors.length > 0 && (
+                  <div className="mt-2 p-2.5 rounded bg-amber-950/50 border border-amber-800/60 text-amber-200 text-[11px] space-y-1">
+                    <div className="font-bold flex items-center gap-1.5 text-amber-300">
+                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>{importResult.errors.length} row(s) had warnings or were skipped:</span>
+                    </div>
+                    <ul className="list-disc pl-4 space-y-0.5 max-h-24 overflow-y-auto">
+                      {importResult.errors.map((err, idx) => (
+                        <li key={idx}>{err}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportResult(null);
+                      setImportCsvText('');
+                      setImportFile(null);
+                    }}
+                    className="px-3 py-1.5 rounded-lg border border-emerald-700/60 text-emerald-300 hover:bg-emerald-900/40 text-xs transition-colors"
+                  >
+                    Import Another
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsImportCsvOpen(false)}
+                    className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Error Display */}
+            {importError && (
+              <div className="p-3 rounded-lg bg-rose-950/50 border border-rose-800 text-rose-300 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+                <span>{importError}</span>
+              </div>
+            )}
+
+            {!importResult && (
+              <form onSubmit={handleImportSubmit} className="space-y-4 text-xs">
+                {/* Mode Switcher Tabs */}
+                <div className="flex border-b border-[#27272a] gap-4 font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setImportMode('upload')}
+                    className={`pb-2 border-b-2 transition-colors ${
+                      importMode === 'upload'
+                        ? 'border-cyan-400 text-white'
+                        : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    Upload File (.csv)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImportMode('paste')}
+                    className={`pb-2 border-b-2 transition-colors ${
+                      importMode === 'paste'
+                        ? 'border-cyan-400 text-white'
+                        : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    Paste CSV Text
+                  </button>
+                </div>
+
+                {/* Upload Mode Area */}
+                {importMode === 'upload' && (
+                  <div>
+                    <label
+                      htmlFor="csv-file-input"
+                      className="flex flex-col items-center justify-center border-2 border-dashed border-[#3f3f46] hover:border-cyan-400/70 rounded-xl p-6 bg-[#121214] cursor-pointer transition-colors group"
+                    >
+                      <FileText className="w-8 h-8 text-zinc-500 group-hover:text-cyan-400 transition-colors mb-2" />
+                      {importFile ? (
+                        <div className="text-center">
+                          <p className="text-white font-bold">{importFile.name}</p>
+                          <p className="text-[11px] text-zinc-400 mt-0.5">
+                            {(importFile.size / 1024).toFixed(1)} KB • Click to choose a different file
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="text-center">
+                          <p className="text-zinc-300 font-medium">
+                            Click to select a <span className="text-cyan-400 font-bold">.csv</span> file
+                          </p>
+                          <p className="text-[11px] text-zinc-500 mt-1">
+                            or drag and drop your spreadsheet here
+                          </p>
+                        </div>
+                      )}
+                      <input
+                        id="csv-file-input"
+                        type="file"
+                        accept=".csv,text/csv"
+                        onChange={handleFileChange}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {/* Paste Mode Area */}
+                {importMode === 'paste' && (
+                  <div>
+                    <label className="text-zinc-400 block mb-1">Paste CSV content below:</label>
+                    <textarea
+                      rows={6}
+                      placeholder={`Student ID, Student Name, Total Hours\n10101, Alex Rivera, 3.5\n10102, Sarah Chen, 4.0`}
+                      value={importCsvText}
+                      onChange={(e) => setImportCsvText(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-lg bg-[#121214] border border-[#27272a] text-white font-mono text-xs focus:outline-none focus:border-zinc-500 resize-none"
+                    />
+                  </div>
+                )}
+
+                {/* Format Guidance & Sample Download */}
+                <div className="bg-[#121214] border border-[#27272a] rounded-xl p-3.5 text-[11px] space-y-2 text-zinc-400">
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-300 font-semibold">Accepted Column Headers:</span>
+                    <button
+                      type="button"
+                      onClick={handleDownloadSampleCsv}
+                      className="text-cyan-400 hover:text-cyan-300 underline text-[11px] inline-flex items-center gap-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      Download Sample CSV
+                    </button>
+                  </div>
+                  <ul className="list-disc pl-4 space-y-1 text-zinc-400">
+                    <li>
+                      <strong className="text-zinc-200">Student ID</strong> (Required: 5 digits, e.g. 10101)
+                    </li>
+                    <li>
+                      <strong className="text-zinc-200">Student Name</strong> (Required, e.g. Alex Rivera)
+                    </li>
+                    <li>
+                      <strong className="text-zinc-200">Total Hours</strong> or <strong className="text-zinc-200">Minutes</strong> (Optional: e.g. 3.5 or 210)
+                    </li>
+                    <li>
+                      <strong className="text-zinc-200">Date</strong> (Optional: YYYY-MM-DD)
+                    </li>
+                  </ul>
+                </div>
+
+                {/* Modal Actions */}
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsImportCsvOpen(false)}
+                    className="flex-1 py-2.5 rounded-lg border border-[#27272a] text-zinc-400 hover:text-white transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={importLoading || (!importFile && !importCsvText.trim())}
+                    className="flex-1 py-2.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 disabled:hover:bg-cyan-500 text-zinc-950 font-bold transition-colors inline-flex items-center justify-center gap-2"
+                  >
+                    {importLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Importing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        <span>Import CSV Now</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
