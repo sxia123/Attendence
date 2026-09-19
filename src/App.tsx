@@ -45,12 +45,13 @@ export const App: React.FC = () => {
     }
   };
 
-  // Handle navigation requests
+  // Handle navigation requests from Sidebar
   const handleViewChange = (view: AppView): void => {
     if ((view === 'dashboard' || view === 'editor') && !isAdmin) {
       setShowAuthScreen(true);
       return;
     }
+    setShowAuthScreen(false);
     setCurrentView(view);
   };
 
@@ -61,64 +62,62 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="h-screen w-screen bg-[#121215] text-zinc-100 flex flex-col font-sans select-none overflow-hidden">
-      {/* If AuthScreen is active */}
-      {showAuthScreen ? (
-        <AuthScreen
-          onStudentAuth={handleStudentAuth}
-          onAdminAuth={handleAdminAuth}
-        />
-      ) : (
-        <div className="flex-1 flex overflow-hidden">
-          {/* Slim Left Navigation Sidebar (Matching sc-attendance.png & sc-dashboard.png) */}
-          <Sidebar
-            currentView={currentView}
-            onViewChange={handleViewChange}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            onLogout={handleLogout}
-            isAdmin={isAdmin}
-          />
+    <div className="h-screen w-screen bg-[#121215] text-zinc-100 flex font-sans select-none overflow-hidden">
+      {/* 
+        PERSISTENT SIDEBAR:
+        Mounted on the left side and remains visible across all views, tabs, and login screens!
+      */}
+      <Sidebar
+        currentView={currentView}
+        onViewChange={handleViewChange}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onLogout={handleLogout}
+        isAdmin={isAdmin}
+      />
 
-          {/* Main Content Area */}
-          <div className="flex-1 flex flex-col overflow-y-auto">
-            <main className="flex-1 flex flex-col justify-start">
-              {currentView === 'kiosk' && (
-                <StudentKiosk sessionTitle="Build Season" />
-              )}
-              {currentView === 'dashboard' && (
-                <AdminDashboard />
-              )}
-              {currentView === 'editor' && (
-                <HoursEditor onExit={() => setCurrentView('kiosk')} />
-              )}
-            </main>
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <main className="flex-1 flex flex-col justify-start overflow-y-auto">
+          {showAuthScreen && !isAdmin ? (
+            <AuthScreen
+              onStudentAuth={handleStudentAuth}
+              onAdminAuth={handleAdminAuth}
+              onCancel={() => setShowAuthScreen(false)}
+            />
+          ) : currentView === 'kiosk' ? (
+            <StudentKiosk sessionTitle="Build Season" />
+          ) : currentView === 'dashboard' ? (
+            <AdminDashboard />
+          ) : (
+            <HoursEditor onExit={() => setCurrentView('kiosk')} />
+          )}
+        </main>
 
-            {/* Bottom Credits Bar (Matching screenshots) */}
-            <footer className="h-10 border-t border-[#27272a] bg-[#121215] px-6 flex items-center justify-between text-[11px] font-mono text-zinc-500 flex-shrink-0 z-30">
-              <div className="flex items-center gap-1.5">
-                <span>Made with</span>
-                <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 inline" />
-                <span>by</span>
-                <span className="text-zinc-300 underline underline-offset-4 decoration-zinc-600">
-                  Angad
-                </span>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <span className="text-zinc-600 hidden sm:inline">FRC Attendance System</span>
-                <a
-                  href="https://codeberg.org/tendulkar/attendance"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-zinc-500 hover:text-white transition-colors"
-                >
-                  <Github className="w-4 h-4" />
-                </a>
-              </div>
-            </footer>
+        {/* Persistent Bottom Credits Bar */}
+        <footer className="h-10 border-t border-[#27272a] bg-[#121215] px-6 flex items-center justify-between text-[11px] font-mono text-zinc-500 flex-shrink-0 z-30">
+          <div className="flex items-center gap-1.5">
+            <span>Made with</span>
+            <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 inline" />
+            <span>by</span>
+            <span className="text-zinc-300 underline underline-offset-4 decoration-zinc-600">
+              Angad
+            </span>
           </div>
-        </div>
-      )}
+
+          <div className="flex items-center gap-4">
+            <span className="text-zinc-600 hidden sm:inline">FRC Attendance System</span>
+            <a
+              href="https://codeberg.org/tendulkar/attendance"
+              target="_blank"
+              rel="noreferrer"
+              className="text-zinc-500 hover:text-white transition-colors"
+              title="View on Codeberg"
+            >
+              <Github className="w-4 h-4" />
+            </a>
+          </div>
+        </footer>
+      </div>
 
       {/* Settings Modal */}
       {isSettingsOpen && (
